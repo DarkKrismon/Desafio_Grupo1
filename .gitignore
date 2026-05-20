@@ -1,0 +1,33 @@
+# Entorno virtual
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Datos pesados
+data/*.csv
+data/*.parquet
+
+# Modelos serializados grandes
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.keras
+
+# Reports generados
+reports/*.png
+reports/*.jpg
+reports/*.pdf
+
+# Variables de entorno
+.env
+
+# macOS
+.DS_Store
