@@ -1,5 +1,6 @@
 # Entorno virtual
 .venv/
+venv/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -18,8 +19,6 @@ data/*.parquet
 # Modelos serializados grandes
 models/*.pkl
 models/*.joblib
-models/*.h5
-models/*.keras
 
 # Reports generados
 reports/*.png
