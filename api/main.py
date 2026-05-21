@@ -19,7 +19,7 @@ Docs interactivas:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import fraud, meta
+from api.routes import fraud, meta, stats
 
 
 # ============================================================
@@ -48,6 +48,7 @@ app.add_middleware(
 # ============================================================
 app.include_router(meta.router)
 app.include_router(fraud.router)
+app.include_router(stats.router)
 
 
 # ============================================================
