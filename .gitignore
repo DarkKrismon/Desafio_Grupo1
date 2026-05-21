@@ -16,10 +16,6 @@ __pycache__/
 data/*.csv
 data/*.parquet
 
-# Modelos serializados grandes
-models/*.pkl
-models/*.joblib
-
 # Reports generados
 reports/*.png
 reports/*.jpg
