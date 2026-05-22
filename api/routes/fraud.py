@@ -38,7 +38,6 @@ from api.schemas import (
     Transaction,
 )
 from src.scoring import (
-    build_counterfactual,
     decision_from_score,
     get_feature_contributions,
     score_transaction,
@@ -137,6 +136,7 @@ async def fraud_queue(
     )
 
 
+'''
 # ============================================================
 # POST /fraud/decide/explain
 # ============================================================
@@ -189,7 +189,7 @@ async def fraud_explain(req: ExplainRequest):
         feature_contributions=contributions,
         counterfactual=counterfactual,
     )
-
+'''
 
 # ============================================================
 # POST /fraud/decide/preview
