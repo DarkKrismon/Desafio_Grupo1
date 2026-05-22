@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Header
+from api.main import limiter
+from src.scoring import score_transaction
 
 from api.schemas import (
     ChallengeOption,
@@ -52,6 +54,8 @@ from src.storage import (
 
 router = APIRouter(prefix="/fraud", tags=["product"])
 
+API_SECRET_KEY = "centinela-secreto-123"
+
 
 # ============================================================
 # POST /fraud/decide
@@ -61,16 +65,37 @@ router = APIRouter(prefix="/fraud", tags=["product"])
     response_model=DecideResponse,
     summary="Decision de fraude en tiempo real",
 )
-async def fraud_decide(tx: Transaction):
+@limiter.limit("30/minute")
+async def fraud_decide(
+    request: Request, 
+    tx_data: Transaction,
+    x_api_key: str = Header(None, alias="X-API-Key")
+):
+    
     """
     Endpoint principal. NovaPay lo llama ANTES de aprobar una transaccion.
     Devuelve allow / review / block + probabilidad + nivel de riesgo.
     """
-    score, risk = score_transaction(tx)
+
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403, 
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+    
+
+    score, risk = score_transaction(tx_data)
     decision = decision_from_score(score)
 
+    if score >= 0.80:
+        action = "BLOCK"
+    elif score >= 0.48:
+        action = "REVIEW"
+    else:
+        action = "ALLOW"
+        
     response = DecideResponse(
-        transaction_id=tx.transaction_id,
+        transaction_id=tx_data.transaction_id,
         decision=decision,
         fraud_probability=score,
         risk_level=risk,
@@ -80,17 +105,17 @@ async def fraud_decide(tx: Transaction):
     # Si va a review, la metemos en la cola del analista
     if decision == Decision.review:
         add_to_queue(QueueItem(
-            transaction_id=tx.transaction_id,
-            amount=tx.amount,
-            type=tx.type.value,
-            ip_country=tx.ip_country,
-            merchant_category=tx.merchant_category,
+            transaction_id=tx_data.transaction_id,
+            amount=tx_data.amount,
+            type=tx_data.type.value,
+            ip_country=tx_data.ip_country,
+            merchant_category=tx_data.merchant_category,
             fraud_probability=score,
             risk_level=risk,
             timestamp=response.timestamp,
         ))
 
-    return response
+    return {"status": "success", "score": score, "action": action}
 
 
 # ============================================================
