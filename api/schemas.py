@@ -11,7 +11,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import re
 
 
 # ============================================================
@@ -43,6 +44,7 @@ class TransactionType(str, Enum):
 class Transaction(BaseModel):
     """Schema acordado con Full Stack (formato PaySim-like)."""
     transaction_id: str = Field(..., example="TXN-001")
+    nameOrig: str = Field(..., example="C123456789")
     amount: float = Field(..., gt=0, example=1500.00)
     type: TransactionType = Field(..., example="TRANSFER")
     oldbalanceOrg: float = Field(..., ge=0, example=2000.00)
@@ -51,6 +53,14 @@ class Transaction(BaseModel):
     newbalanceDest: float = Field(..., ge=0, example=1500.00)
     ip_country: str = Field(..., example="KH")
     merchant_category: str = Field(..., example="crypto")
+
+    @field_validator('nameOrig')
+    @classmethod
+    def validate_user_id(cls, v):
+        pattern = r'^[Cc]\d{9}$'
+        if not re.match(pattern, v):
+            raise ValueError('nameOrig inválido. Formato: C + 9 dígitos (ej: C123456789)')
+        return v.upper()
 
 
 class FeedbackRequest(BaseModel):
