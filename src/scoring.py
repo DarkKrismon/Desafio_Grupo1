@@ -7,8 +7,10 @@ from api.schemas import Decision, RiskLevel, Transaction
 # CARGA DE MODELOS
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "best_threshold.joblib")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "xgb_fraud_pipeline.joblib")
 PREP_PATH = os.path.join(BASE_DIR, "models", "xgb_fraud_pipeline.joblib")
+
+pipeline_real = joblib.load(MODEL_PATH)
 
 print("Cargando modelo de Machine Learning...")
 try:
@@ -68,33 +70,23 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
 # SCORING
 # ============================================================
 def score_transaction(tx: Transaction) -> tuple[float, RiskLevel]:
+    
     if pipeline is None:
         return 0.0, RiskLevel.low
 
-    df_tx = pd.DataFrame([{
-        "amount": tx.amount,
-        "oldbalanceOrg": tx.oldbalanceOrg,
-        "newbalanceOrig": tx.newbalanceOrig,
-        "oldbalanceDest": tx.oldbalanceDest,
-        "newbalanceDest": tx.newbalanceDest,
-        "type": tx.type.value,
-        "merchant_category": tx.merchant_category,
-        "ip_country": tx.ip_country,
-        "is_high_risk_country": 1 if tx.ip_country in ['KH', 'CN', 'NG', 'CI', 'VE'] else 0,
-        "is_high_risk_category": 1 if tx.merchant_category in ['crypto', 'electronics'] else 0,
-    }])
+    input_data = pd.DataFrame([tx.model_dump()])
 
-    score_ml = float(pipeline.predict_proba(df_tx)[0][1])
-    score_final = apply_bonus_rules(tx, score_ml)
+    # Inferencia matemática real del modelo XGBoost
+    score_real = float(pipeline_real.predict_proba(input_data)[0][1])
 
-    if score_final >= 0.75:
+    if score_real >= 0.75:
         risk = RiskLevel.high
-    elif score_final >= 0.45:
+    elif score_real >= 0.45:
         risk = RiskLevel.medium
     else:
         risk = RiskLevel.low
 
-    return score_final, risk
+    return score_real, risk
 
 
 # ============================================================
