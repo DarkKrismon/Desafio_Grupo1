@@ -7,15 +7,13 @@ from api.schemas import Decision, RiskLevel, Transaction
 # CARGA DE MODELOS
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "xgb_fraud_pipeline.joblib")
-PREP_PATH = os.path.join(BASE_DIR, "models", "xgb_fraud_pipeline.joblib")
-
-pipeline_real = joblib.load(MODEL_PATH)
+PIPELINE_PATH = os.path.join(BASE_DIR, "models", "xgb_fraud_pipeline.joblib")
+THRESHOLD_PATH = os.path.join(BASE_DIR, "models", "best_threshold.joblib")
 
 print("Cargando modelo de Machine Learning...")
 try:
-    pipeline = joblib.load(PREP_PATH)      # pipeline completo (preprocesador + XGBoost)
-    threshold = joblib.load(MODEL_PATH)    # float escalar (ej: 0.6)
+    pipeline = joblib.load(PIPELINE_PATH)
+    threshold = joblib.load(THRESHOLD_PATH)
     print("✅ Modelo cargado con éxito.")
 except Exception as e:
     pipeline = None
@@ -32,33 +30,26 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     high_risk_countries = ['KH', 'CN', 'NG', 'CI', 'VE']
     high_risk_categories = ['crypto', 'electronics']
 
-    # Pais de alto riesgo
     if tx.ip_country in high_risk_countries:
         bonus += 0.05
 
-    # Categoria sospechosa
     if tx.merchant_category in high_risk_categories:
         bonus += 0.05
 
-    # Monto muy alto (p95 aprox)
     if tx.amount > 8000:
         bonus += 0.05
 
-    # Balance error origen
     balance_error_orig = abs((tx.oldbalanceOrg - tx.amount) - tx.newbalanceOrig)
     if balance_error_orig > 0.01:
         bonus += 0.08
 
-    # Balance error destino
     balance_error_dest = abs((tx.oldbalanceDest + tx.amount) - tx.newbalanceDest)
     if balance_error_dest > 0.01:
         bonus += 0.08
 
-    # Cuenta origen empieza en 0 y sigue en 0
     if tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0:
         bonus += 0.06
 
-    # Combinacion pais + categoria (doble señal)
     if tx.ip_country in high_risk_countries and tx.merchant_category in high_risk_categories:
         bonus += 0.05
 
@@ -70,23 +61,33 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
 # SCORING
 # ============================================================
 def score_transaction(tx: Transaction) -> tuple[float, RiskLevel]:
-    
     if pipeline is None:
         return 0.0, RiskLevel.low
 
-    input_data = pd.DataFrame([tx.model_dump()])
+    df_tx = pd.DataFrame([{
+        "amount": tx.amount,
+        "oldbalanceOrg": tx.oldbalanceOrg,
+        "newbalanceOrig": tx.newbalanceOrig,
+        "oldbalanceDest": tx.oldbalanceDest,
+        "newbalanceDest": tx.newbalanceDest,
+        "type": tx.type.value,
+        "merchant_category": tx.merchant_category,
+        "ip_country": tx.ip_country,
+        "is_high_risk_country": 1 if tx.ip_country in ['KH', 'CN', 'NG', 'CI', 'VE'] else 0,
+        "is_high_risk_category": 1 if tx.merchant_category in ['crypto', 'electronics'] else 0,
+    }])
 
-    # Inferencia matemática real del modelo XGBoost
-    score_real = float(pipeline_real.predict_proba(input_data)[0][1])
+    score_ml = float(pipeline.predict_proba(df_tx)[0][1])
+    score_final = apply_bonus_rules(tx, score_ml)
 
-    if score_real >= 0.75:
+    if score_final >= 0.75:
         risk = RiskLevel.high
-    elif score_real >= 0.45:
+    elif score_final >= 0.45:
         risk = RiskLevel.medium
     else:
         risk = RiskLevel.low
 
-    return score_real, risk
+    return score_final, risk
 
 
 # ============================================================
