@@ -7,6 +7,7 @@ Endpoints meta: health, ready, info del sistema.
 from fastapi import APIRouter
 
 from src.storage import queue_size
+from src.scoring import pipeline
 
 router = APIRouter(tags=["meta"])
 
@@ -22,7 +23,7 @@ async def ready():
     """Readiness: confirma estado del modelo y servicios."""
     return {
         "status": "ready",
-        "model_loaded": False,  # cambiar a True cuando se enchufe el modelo real
-        "model_version": "mock-v0.1",
+        "model_loaded": pipeline is not None,
+        "model_version": "xgb-v1.0",
         "queue_size": queue_size(),
     }
