@@ -11,8 +11,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, field_validator, Field, ConfigDict
+from typing import Literal
 
+TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
 # ============================================================
 # ENUMS
@@ -41,16 +43,29 @@ class TransactionType(str, Enum):
 # REQUEST
 # ============================================================
 class Transaction(BaseModel):
-    """Schema acordado con Full Stack (formato PaySim-like)."""
-    transaction_id: str = Field(..., example="TXN-001")
-    amount: float = Field(..., gt=0, example=1500.00)
-    type: TransactionType = Field(..., example="TRANSFER")
-    oldbalanceOrg: float = Field(..., ge=0, example=2000.00)
-    newbalanceOrig: float = Field(..., ge=0, example=500.00)
-    oldbalanceDest: float = Field(..., ge=0, example=0.00)
-    newbalanceDest: float = Field(..., ge=0, example=1500.00)
-    ip_country: str = Field(..., example="KH")
-    merchant_category: str = Field(..., example="crypto")
+    # 1. Prohibimos estrictamente campos no documentados
+    model_config = ConfigDict(extra="forbid")
+
+    # 2. Tipado estricto y límites matemáticos
+    step: int = Field(ge=1, description="Horas transcurridas en el sistema")
+    type: TransactionType = Field(description="Tipo de movimiento financiero")
+    
+    # Prevenimos montos negativos y números infinitamente grandes
+    amount: float = Field(ge=0.0, le=1_000_000_000.0, description="Importe de la transacción")
+    
+    nameOrig: str = Field(min_length=1, max_length=50, description="ID del cliente origen")
+    
+    oldbalanceOrg: float = Field(ge=0.0, description="Saldo inicial del origen")
+    newbalanceOrig: float = Field(ge=0.0, description="Saldo final del origen")
+    
+    nameDest: str = Field(min_length=1, max_length=50, description="ID del cliente destino")
+    
+    oldbalanceDest: float = Field(ge=0.0, description="Saldo inicial del destino")
+    newbalanceDest: float = Field(ge=0.0, description="Saldo final del destino")
+    
+    # Validamos que no nos pasen categorías o países absurdamente largos
+    merchant_category: str | None = Field(default="unknown", max_length=30)
+    ip_country: str | None = Field(default="unknown", max_length=10)
 
 
 class FeedbackRequest(BaseModel):
