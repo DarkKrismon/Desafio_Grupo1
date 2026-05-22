@@ -17,6 +17,16 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 
+import os
+import joblib
+
+# Threshold óptimo calculado en el notebook de ML (best_threshold.joblib)
+# Si el archivo no existe por problemas de despliegue, usamos 0.80 como fallback seguro
+THRESHOLD_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "models", "best_threshold.joblib"
+)
+OPTIMAL_THRESHOLD = joblib.load(THRESHOLD_PATH) if os.path.exists(THRESHOLD_PATH) else 0.80
+
 from api.schemas import (
     ChallengeOption,
     ChallengeRequest,
@@ -69,29 +79,15 @@ async def fraud_decide(tx: Transaction):
     score, risk = score_transaction(tx)
     decision = decision_from_score(score)
 
-    response = DecideResponse(
-        transaction_id=tx.transaction_id,
-        decision=decision,
-        fraud_probability=score,
-        risk_level=risk,
-        timestamp=datetime.now(timezone.utc),
-    )
+score, risk = score_transaction(tx)
 
-    # Si va a review, la metemos en la cola del analista
-    if decision == Decision.review:
-        add_to_queue(QueueItem(
-            transaction_id=tx.transaction_id,
-            amount=tx.amount,
-            type=tx.type.value,
-            ip_country=tx.ip_country,
-            merchant_category=tx.merchant_category,
-            fraud_probability=score,
-            risk_level=risk,
-            timestamp=response.timestamp,
-        ))
-
-    return response
-
+# Sincronización matemática estricta entre Data Science y API
+if score >= OPTIMAL_THRESHOLD:
+    decision = Decision.block
+elif score >= (OPTIMAL_THRESHOLD * 0.6):  # Escala proporcional de revisión
+    decision = Decision.review
+else:
+    decision = Decision.allow
 
 # ============================================================
 # GET /fraud/queue

@@ -12,8 +12,8 @@ PREP_PATH = os.path.join(BASE_DIR, "models", "xgb_fraud_pipeline.joblib")
 
 print("Cargando modelo de Machine Learning...")
 try:
-    pipeline = joblib.load(PREP_PATH)      # pipeline completo (preprocesador + XGBoost)
-    threshold = joblib.load(MODEL_PATH)    # float escalar (ej: 0.6)
+    pipeline = joblib.load(PREP_PATH)
+    threshold = joblib.load(MODEL_PATH)
     print("✅ Modelo cargado con éxito.")
 except Exception as e:
     pipeline = None
@@ -30,33 +30,24 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     high_risk_countries = ['KH', 'CN', 'NG', 'CI', 'VE']
     high_risk_categories = ['crypto', 'electronics']
 
-    # Pais de alto riesgo
     if tx.ip_country in high_risk_countries:
         bonus += 0.05
-
-    # Categoria sospechosa
     if tx.merchant_category in high_risk_categories:
         bonus += 0.05
-
-    # Monto muy alto (p95 aprox)
     if tx.amount > 8000:
         bonus += 0.05
 
-    # Balance error origen
     balance_error_orig = abs((tx.oldbalanceOrg - tx.amount) - tx.newbalanceOrig)
     if balance_error_orig > 0.01:
         bonus += 0.08
 
-    # Balance error destino
     balance_error_dest = abs((tx.oldbalanceDest + tx.amount) - tx.newbalanceDest)
     if balance_error_dest > 0.01:
         bonus += 0.08
 
-    # Cuenta origen empieza en 0 y sigue en 0
     if tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0:
         bonus += 0.06
 
-    # Combinacion pais + categoria (doble señal)
     if tx.ip_country in high_risk_countries and tx.merchant_category in high_risk_categories:
         bonus += 0.05
 
