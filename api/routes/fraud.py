@@ -16,7 +16,7 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Header
-from api.main import limiter
+from api.limiter import limiter
 from src.scoring import score_transaction
 
 from api.schemas import (
