@@ -47,7 +47,7 @@ class Transaction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     transaction_id: str = Field(min_length=1, max_length=50, description="ID único de la transacción")
-    
+
     # 2. Tipado estricto y límites matemáticos
     step: int = Field(ge=1, description="Horas transcurridas en el sistema")
     type: TransactionType = Field(description="Tipo de movimiento financiero")
