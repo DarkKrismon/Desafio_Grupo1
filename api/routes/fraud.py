@@ -113,7 +113,7 @@ async def fraud_decide(
             timestamp=response.timestamp,
         ))
 
-    return {"status": "success", "score": score, "action": action}
+    return response
 
 
 # ============================================================
