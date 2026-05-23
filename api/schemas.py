@@ -171,3 +171,26 @@ class FeedbackResponse(BaseModel):
     case_id: str
     transaction_id: str
     decision: str
+
+# ============================================================
+# CLIENT PROFILE
+# ============================================================
+class TransactionSummary(BaseModel):
+    transaction_id: str
+    amount: float
+    type: str
+    merchant_category: str
+    ip_country: str
+    fraud_probability: float
+    decision: Decision
+    timestamp: datetime
+
+class ClientProfile(BaseModel):
+    nameOrig: str
+    total_transactions: int
+    total_amount_eur: float
+    fraud_flags: int
+    first_seen: datetime
+    last_seen: datetime
+    risk_profile: RiskLevel
+    recent_transactions: list[TransactionSummary]
