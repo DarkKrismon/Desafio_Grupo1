@@ -39,7 +39,6 @@ from api.schemas import (
 )
 from src.scoring import (
     decision_from_score,
-    get_feature_contributions,
     score_transaction,
 )
 from src.storage import (

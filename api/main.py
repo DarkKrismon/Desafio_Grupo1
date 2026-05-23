@@ -20,55 +20,35 @@ Docs interactivas:
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import fraud, meta, stats
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from api.limiter import limiter
 
-app = FastAPI(title="NovaPay Fraud Shield API")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
-
-# ============================================================
-# APP
-# ============================================================
 app = FastAPI(
     title="Sentinel API",
     description="Fraud DNA detection for adaptive threats - NovaPay",
     version="0.1.0",
 )
 
+# Ahora configura TODO sobre esta única app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
-# ============================================================
-# MIDDLEWARE
-# ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],     # en produccion: lista de dominios de NovaPay
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# ============================================================
-# ROUTERS
-# ============================================================
 app.include_router(meta.router)
 app.include_router(fraud.router)
 app.include_router(stats.router)
 
-
-# ============================================================
-# ROOT
-# ============================================================
 @app.get("/", include_in_schema=False)
 async def root():
-    return {
-        "service": "Sentinel API",
-        "version": app.version,
-        "docs": "/docs",
-    }
+    return {"service": "Sentinel API", "version": app.version, "docs": "/docs"}
