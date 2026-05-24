@@ -14,6 +14,7 @@ from typing import Optional
 from pydantic import BaseModel, field_validator, Field, ConfigDict
 from typing import Literal
 
+
 TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
 # ============================================================
@@ -105,20 +106,57 @@ class DecideResponse(BaseModel):
     timestamp: datetime
 
 
+# ============================================================
+# QueueItem: AMPLIADO con los campos crudos de la transacción
+# ============================================================
 class QueueItem(BaseModel):
+    """Caso de la cola de revisión del analista.
+
+    Incluye los campos derivados (score, risk_level) y los crudos de la
+    transacción para que el panel de detalle del analista tenga toda la
+    información sin tener que llamar a otro endpoint.
+    """
+
+    # --- Identificación y score (ya existentes) ---
     transaction_id: str
     amount: float
     type: str
-    ip_country: str
-    merchant_category: str
+    ip_country: Optional[str] = None
+    merchant_category: Optional[str] = None
     fraud_probability: float
-    risk_level: RiskLevel
-    timestamp: datetime
+    risk_level: Literal["low", "medium", "high"]
+    timestamp: Optional[datetime] = None
+
+    # --- NUEVOS: campos crudos de la transacción para el panel del analista ---
+    # Opcionales para no romper compatibilidad si alguna transacción no los trae.
+    # En la práctica, todas las transacciones procesadas vía /decide los traerán.
+    step: Optional[int] = Field(None, description="Paso temporal del dataset PaySim")
+    nameOrig: Optional[str] = Field(None, description="Cuenta de origen")
+    nameDest: Optional[str] = Field(None, description="Cuenta de destino")
+    oldbalanceOrg: Optional[float] = Field(None, description="Saldo origen antes de la transacción")
+    newbalanceOrig: Optional[float] = Field(None, description="Saldo origen después de la transacción")
+    oldbalanceDest: Optional[float] = Field(None, description="Saldo destino antes de la transacción")
+    newbalanceDest: Optional[float] = Field(None, description="Saldo destino después de la transacción")
 
 
+# ============================================================
+# QueueResponse: AMPLIADO con paginación
+# ============================================================
 class QueueResponse(BaseModel):
-    total_pending: int
+    """Respuesta paginada de la cola de revisión.
+
+    Mantiene 'queue' como nombre del array (decisión acordada con Full Stack,
+    NO cambiar a 'items') y añade campos de paginación.
+
+    'total_pending' se mantiene por compatibilidad con la documentación previa
+    y representa el total de casos pendientes en la cola (mismo valor que 'total').
+    """
+
     queue: list[QueueItem]
+    total: int = Field(..., description="Nº total de casos que cumplen el filtro (no solo los devueltos en esta página)")
+    limit: int = Field(..., description="Nº máximo de items en esta respuesta")
+    offset: int = Field(..., description="Offset aplicado")
+    total_pending: int = Field(..., description="Alias de 'total' por compatibilidad con docs previas")
 
 
 class FeatureContribution(BaseModel):

@@ -111,8 +111,15 @@ async def fraud_decide(
             fraud_probability=score,
             risk_level=risk,
             timestamp=response.timestamp,
+            # NUEVO: campos crudos de la transacción para el panel del analista
+            step=tx_data.step,
+            nameOrig=tx_data.nameOrig,
+            nameDest=tx_data.nameDest,
+            oldbalanceOrg=tx_data.oldbalanceOrg,
+            newbalanceOrig=tx_data.newbalanceOrig,
+            oldbalanceDest=tx_data.oldbalanceDest,
+            newbalanceDest=tx_data.newbalanceDest,
         ))
-
     return response
 
 
@@ -125,16 +132,40 @@ async def fraud_decide(
     summary="Cola de casos pendientes de revision",
 )
 async def fraud_queue(
-    limit: int = Query(default=50, le=200),
-    risk_level: Optional[RiskLevel] = None,
+    limit: int = Query(default=50, ge=1, le=200, description="Nº de casos a devolver (1-200)"),
+    offset: int = Query(default=0, ge=0, description="Offset para paginación"),
+    risk_level: Optional[RiskLevel] = Query(default=None, description="Filtrar por nivel: low, medium, high"),
+    type: Optional[str] = Query(
+        default=None,
+        description="Filtrar por tipo(s) de transacción. Acepta uno o varios separados por coma. Ej: 'TRANSFER' o 'TRANSFER,CASH_OUT'.",
+    ),
 ):
-    items = get_queue(limit=limit, risk_level=risk_level)
-    return QueueResponse(
-        total_pending=queue_size(risk_level=risk_level),
-        queue=items,
+    # Parsear el filtro type (puede venir como lista separada por comas)
+    types_list: Optional[list[str]] = None
+    if type is not None:
+        types_list = [t.strip().upper() for t in type.split(",") if t.strip()]
+        valid_types = {"TRANSFER", "CASH_OUT", "CASH_IN", "DEBIT", "PAYMENT"}
+        unknown = set(types_list) - valid_types
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Tipos desconocidos: {sorted(unknown)}. Válidos: {sorted(valid_types)}",
+            )
+
+    items, total = get_queue(
+        limit=limit,
+        offset=offset,
+        risk_level=risk_level,
+        types=types_list,
     )
 
-
+    return QueueResponse(
+        queue=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        total_pending=total,  # alias por compatibilidad
+    )
 '''
 # ============================================================
 # POST /fraud/decide/explain
