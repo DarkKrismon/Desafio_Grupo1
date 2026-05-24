@@ -84,7 +84,14 @@ class ExplainRequest(BaseModel):
 class PreviewRequest(BaseModel):
     threshold_block: float = Field(..., ge=0, le=1, example=0.60)
     threshold_review: float = Field(..., ge=0, le=1, example=0.40)
-    test_set: str = Field(default="round_1", example="round_1")
+    test_set: Literal["round_1", "round_2"] = Field(
+        default="round_1",
+        description="Dataset sobre el que evaluar: 'round_1' (línea base) o 'round_2' (adversario adaptado)",
+    )
+    compare: bool = Field(
+        default=False,
+        description="Si es true, devuelve además un bloque 'comparison' con métricas R1 vs R2 en la misma respuesta. Ideal para el dashboard de benchmark.",
+    )
 
 
 class ChallengeRequest(BaseModel):
@@ -146,10 +153,28 @@ class PreviewMetrics(BaseModel):
     money_saved_eur: float
 
 
+class RoundComparison(BaseModel):
+    """Métricas de detección de una ronda para el benchmark R1 vs R2."""
+    round_id: Literal["round_1", "round_2"]
+    total_transactions: int
+    fraud_in_dataset: int
+    fraud_caught: int
+    fraud_missed: int
+    recall: float
+    precision: float
+    f1_score: float
+    money_saved_eur: float
+    avg_fraud_probability: float
+
+
 class PreviewResponse(BaseModel):
     current_config: PreviewMetrics
     preview_config: PreviewMetrics
     delta: dict
+    comparison: Optional[dict] = Field(
+        default=None,
+        description="Sólo presente si la petición incluyó compare=true. Contiene métricas de round_1, round_2 y bloque 'improvement' con los deltas y una interpretación textual.",
+    )
 
 
 class ChallengeOption(BaseModel):

@@ -54,6 +54,47 @@ router = APIRouter(prefix="/fraud", tags=["product"])
 
 API_SECRET_KEY = "centinela-secreto-123"
 
+# ============================================================
+# BASELINES POR RONDA (mock hasta tener métricas reales)
+# Cuando Juanra tenga los resultados reales de R1/R2 con el modelo
+# definitivo, basta con sustituir estos valores.
+# ============================================================
+ROUND_BASELINES = {
+    "round_1": {
+        "blocked": 142, "reviewed": 380, "allowed": 9478,
+        "fraud_caught": 38, "false_positives": 12,
+        "money_saved_eur": 28400.0,
+        "total_transactions": 10000, "fraud_in_dataset": 50,
+        "recall": 0.76, "precision": 0.76, "f1": 0.76,
+        "avg_fraud_probability": 0.42,
+    },
+    "round_2": {
+        "blocked": 168, "reviewed": 425, "allowed": 9407,
+        "fraud_caught": 51, "false_positives": 18,
+        "money_saved_eur": 39800.0,
+        "total_transactions": 10000, "fraud_in_dataset": 62,
+        "recall": 0.82, "precision": 0.74, "f1": 0.78,
+        "avg_fraud_probability": 0.48,
+    },
+}
+
+
+def _build_round_comparison(round_id: str) -> dict:
+    """Construye el bloque de métricas de una ronda para la comparativa."""
+    b = ROUND_BASELINES[round_id]
+    return {
+        "round_id": round_id,
+        "total_transactions": b["total_transactions"],
+        "fraud_in_dataset": b["fraud_in_dataset"],
+        "fraud_caught": b["fraud_caught"],
+        "fraud_missed": b["fraud_in_dataset"] - b["fraud_caught"],
+        "recall": b["recall"],
+        "precision": b["precision"],
+        "f1_score": b["f1"],
+        "money_saved_eur": b["money_saved_eur"],
+        "avg_fraud_probability": b["avg_fraud_probability"],
+    }
+
 
 # ============================================================
 # POST /fraud/decide
@@ -196,23 +237,29 @@ async def fraud_explain(req: ExplainRequest):
 @router.post(
     "/decide/preview",
     response_model=PreviewResponse,
-    summary="What-if: simula impacto de cambiar umbrales",
+    summary="What-if: simula impacto de cambiar umbrales (R1/R2 + comparativa)",
 )
 async def fraud_preview(req: PreviewRequest):
     """
-    Permite a NovaPay simular el impacto de cambiar umbrales sin tocar produccion.
-    Devuelve impacto en EUR (fraude evitado vs. clientes legitimos bloqueados).
+    Permite a NovaPay simular el impacto de cambiar umbrales sin tocar producción.
+
+    Soporta:
+      - test_set='round_1' o 'round_2' para evaluar contra cada dataset adversarial
+      - compare=true para devolver además un bloque 'comparison' con R1 vs R2
+        en la misma respuesta (ideal para el dashboard de benchmark)
     """
-    # Config actual de referencia (mock; en real se leeria de DB)
+    # Baseline según la ronda elegida
+    baseline = ROUND_BASELINES[req.test_set]
+
     current = PreviewMetrics(
         threshold_block=0.75,
         threshold_review=0.50,
-        blocked=142,
-        reviewed=380,
-        allowed=9478,
-        fraud_caught=38,
-        false_positives=12,
-        money_saved_eur=28400.0,
+        blocked=baseline["blocked"],
+        reviewed=baseline["reviewed"],
+        allowed=baseline["allowed"],
+        fraud_caught=baseline["fraud_caught"],
+        false_positives=baseline["false_positives"],
+        money_saved_eur=baseline["money_saved_eur"],
     )
 
     threshold_delta = 0.75 - req.threshold_block
@@ -246,17 +293,40 @@ async def fraud_preview(req: PreviewRequest):
     else:
         recommendation = "El cambio no aporta deteccion adicional significativa."
 
-    return PreviewResponse(
-        current_config=current,
-        preview_config=preview,
-        delta={
+    response_data = {
+        "current_config": current,
+        "preview_config": preview,
+        "delta": {
             "extra_fraud_caught": extra_fraud_caught,
             "extra_false_positives": extra_false_positives,
             "extra_money_saved_eur": round(extra_money_saved, 2),
             "recommendation": recommendation,
+            "test_set_evaluated": req.test_set,
         },
-    )
+    }
 
+    # Si piden comparativa, añadimos R1 vs R2 + improvement
+    if req.compare:
+        r1 = _build_round_comparison("round_1")
+        r2 = _build_round_comparison("round_2")
+        response_data["comparison"] = {
+            "round_1": r1,
+            "round_2": r2,
+            "improvement": {
+                "recall_delta": round(r2["recall"] - r1["recall"], 4),
+                "f1_delta": round(r2["f1_score"] - r1["f1_score"], 4),
+                "extra_fraud_caught": r2["fraud_caught"] - r1["fraud_caught"],
+                "extra_money_saved_eur": round(r2["money_saved_eur"] - r1["money_saved_eur"], 2),
+                "interpretation": (
+                    "El modelo de Ronda 2 detecta más fraude adaptativo que Ronda 1: "
+                    f"+{round((r2['recall'] - r1['recall']) * 100, 1)}% de recall, "
+                    f"+{r2['fraud_caught'] - r1['fraud_caught']} fraudes adicionales capturados, "
+                    f"+{round(r2['money_saved_eur'] - r1['money_saved_eur'], 0)}€ ahorrados."
+                ),
+            },
+        }
+
+    return response_data
 
 # ============================================================
 # POST /fraud/challenge
