@@ -74,7 +74,12 @@ class FeedbackRequest(BaseModel):
     transaction_id: str = Field(..., example="TXN-002")
     analyst_decision: str = Field(..., example="fraud")
     analyst_notes: Optional[str] = Field(None, example="Confirmado por usuario")
-    analyst_id: str = Field(..., example="analyst_42")
+    analyst_id: str = Field(
+        ...,
+        pattern=r"^[a-zA-Z0-9_-]{3,64}$",
+        example="analyst_42",
+        description="ID del analista. Formato: 3-64 caracteres alfanuméricos, guiones bajos o guiones medios. Ej: 'analyst_42', 'maria-garcia', 'ana123'.",
+    )
 
 
 class ExplainRequest(BaseModel):
