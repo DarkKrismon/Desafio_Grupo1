@@ -87,6 +87,63 @@ Es el corazón transaccional del sistema. Controla la lógica de evaluación en 
     }
 ```
 
+- `GET /api/v1/fraud/client/{name_orig}` (Perfil del Cliente)
+  - Qué hace: Devuelve el perfil completo de un cliente para el Client Profile 
+    Modal del analista. Cuando el analista abre un caso de la cola de revisión, 
+    este endpoint le proporciona el contexto histórico del usuario: estadísticas 
+    agregadas (volumen, importe medio, ratio de fraude histórico), las últimas 
+    transacciones del cliente y banderas cualitativas de riesgo derivadas de 
+    su comportamiento pasado. No sustituye al score del modelo: lo complementa 
+    con contexto humanamente interpretable.
+
+  - Validación previa (Pydantic): El parámetro de ruta name_orig se valida 
+    automáticamente. Solo se aceptan identificadores con formato C seguido de 
+    exactamente 9 dígitos (ej: C691771226). Cualquier request que no cumpla 
+    este formato recibe un error 422 sin consumir recursos.
+
+  - Qué recibe: Parámetro de ruta name_orig (string, formato C + 9 dígitos) 
+    y parámetros opcionales de query: limit (por defecto 20, máximo 100) y 
+    offset (por defecto 0) para paginar las transacciones recientes.
+
+  - Qué devuelve (200 OK):
+
+```json
+    {
+      "client_id": "C1231006815",
+      "stats": {
+        "total_transactions": 47,
+        "total_volume": 12340.50,
+        "avg_amount": 262.50,
+        "max_amount": 9831.20,
+        "first_seen": null,
+        "last_seen": null,
+        "fraud_rate_historical": 0.021,
+        "distinct_counterparties": 23,
+        "most_used_type": "TRANSFER"
+      },
+      "recent_transactions": [
+        {
+          "transaction_id": "TXN-0042",
+          "timestamp": null,
+          "step": 187,
+          "type": "TRANSFER",
+          "amount": 1500.00,
+          "nameDest": "C2056789123",
+          "oldbalanceOrg": 2000.00,
+          "newbalanceOrig": 500.00,
+          "is_flagged_fraud": false
+        }
+      ],
+      "risk_flags": ["frequent_cash_out", "previously_flagged"]
+    }
+```
+
+  - Banderas de riesgo posibles: new_client, previously_flagged, 
+    frequent_cash_out, high_velocity, unusual_amount, concentrated_destination.
+
+  - Errores: 404 si el cliente no existe en el dataset histórico, 422 si los 
+    parámetros de paginación están fuera de rango.
+
 ## 2. Módulo de Analítica Global (routes/stats.py)
 
 - `GET /api/v1/data/stats` (Métricas del Dashboard)

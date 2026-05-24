@@ -110,3 +110,73 @@ score_final = min(score_ml + bonus, 1.0)
 ```
 
 Ejemplo de combinación:
+
+## 4. Motor de Perfilado de Cliente (client_profile.py)
+
+El módulo de perfilado proporciona contexto histórico al analista en el momento 
+de la revisión. A diferencia del motor de scoring, que es probabilístico y 
+opera transacción a transacción, este módulo opera **a nivel de cliente** y 
+devuelve agregaciones legibles que el analista usa para tomar la decisión final.
+
+### Carga del Dataset Histórico (Pattern Singleton)
+
+El dataset sintético de NovaPay se carga una sola vez en memoria al primer 
+request mediante un singleton perezoso. Esto evita lecturas repetidas del CSV 
+y mantiene la latencia del endpoint en el orden de milisegundos:
+
+```python
+_df_cache: Optional[pd.DataFrame] = None
+
+def _load_dataset() -> pd.DataFrame:
+    global _df_cache
+    if _df_cache is None:
+        _df_cache = pd.read_csv(_DATA_PATH)
+    return _df_cache
+```
+
+Si el dataset cambia entre rondas (Ronda 2 del Red Team), basta con reiniciar 
+uvicorn para forzar la recarga.
+
+### Cálculo de Estadísticas Agregadas
+
+A partir del histórico del cliente se calculan métricas estables:
+
+| Métrica | Cálculo |
+|---|---|
+| total_transactions | Número de filas del cliente |
+| total_volume | Suma de importes |
+| avg_amount / max_amount | Estadísticos descriptivos del importe |
+| fraud_rate_historical | Ratio isFraud=1 sobre el total del cliente |
+| distinct_counterparties | nameDest únicos |
+| most_used_type | Moda de la columna type |
+
+### Sistema de Banderas Cualitativas (Risk Flags)
+
+Sobre el histórico del cliente se evalúan reglas heurísticas que devuelven 
+banderas legibles. Estas banderas **no compiten** con el score del modelo: 
+son señales rápidas para que el analista entienda el caso de un vistazo.
+
+| Bandera | Condición |
+|---|---|
+| new_client | El cliente tiene ≤ 3 transacciones registradas |
+| previously_flagged | Alguna transacción del cliente está marcada como fraude |
+| frequent_cash_out | Más del 50% de sus transacciones son CASH_OUT |
+| high_velocity | Más de 0,5 transacciones por unidad de step |
+| unusual_amount | Alguna transacción supera 5× su importe medio |
+| concentrated_destination | Más del 70% del volumen va a un único destinatario |
+
+### Decisión de Diseño: Lectura del CSV vs Base de Datos
+
+En esta fase del proyecto la fuente del histórico es el CSV sintético generado 
+por el Red Team. En un sistema en producción real este motor leería de una 
+base de datos OLAP o un data warehouse con índices sobre nameOrig. La elección 
+de CSV responde al alcance MVP y a que el dataset es estático durante cada 
+ronda adversarial.
+
+### Consideraciones de Privacidad
+
+Los identificadores nameOrig y nameDest se exponen en claro al analista porque 
+los datos son sintéticos. En un despliegue real, estos identificadores 
+deberían tokenizarse o pseudonimizarse en el endpoint, y el acceso del 
+analista registrarse en un log de auditoría conforme al principio de 
+minimización de datos.

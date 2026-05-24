@@ -13,6 +13,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator, Field, ConfigDict
 from typing import Literal
+from api.schemas import ClientProfileResponse
 
 TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
@@ -194,3 +195,86 @@ class ClientProfile(BaseModel):
     last_seen: datetime
     risk_profile: RiskLevel
     recent_transactions: list[TransactionSummary]
+
+    # ============================================================
+# Sub-modelos
+# ============================================================
+class ClientStats(BaseModel):
+    """Estadísticas agregadas históricas del cliente."""
+
+    total_transactions: int = Field(..., description="Nº total de transacciones del cliente en el histórico")
+    total_volume: float = Field(..., description="Suma de importes de todas sus transacciones (€)")
+    avg_amount: float = Field(..., description="Importe medio por transacción (€)")
+    max_amount: float = Field(..., description="Mayor importe registrado (€)")
+    first_seen: Optional[datetime] = Field(None, description="Primera vez que aparece en el sistema")
+    last_seen: Optional[datetime] = Field(None, description="Última transacción registrada")
+    fraud_rate_historical: float = Field(..., description="Ratio de fraude del cliente: nº fraudes / nº total. Rango [0, 1]")
+    distinct_counterparties: int = Field(..., description="Nº de destinatarios distintos (nameDest)")
+    most_used_type: Optional[str] = Field(None, description="Tipo de transacción más frecuente (TRANSFER, CASH_OUT, ...)")
+
+
+class RecentTransaction(BaseModel):
+    """Transacción reciente del cliente para la timeline del modal."""
+
+    transaction_id: str
+    timestamp: Optional[datetime] = None
+    step: Optional[int] = Field(None, description="Paso temporal del dataset PaySim si no hay timestamp real")
+    type: str
+    amount: float
+    nameDest: str
+    oldbalanceOrg: float
+    newbalanceOrig: float
+    is_flagged_fraud: bool = Field(..., description="Marcada como fraude en el histórico (groundtruth o decisión previa)")
+
+
+# ============================================================
+# Respuesta principal
+# ============================================================
+class ClientProfileResponse(BaseModel):
+    """Perfil completo del cliente para el modal de Full Stack."""
+
+    client_id: str = Field(..., description="Identificador del cliente (nameOrig)")
+    stats: ClientStats
+    recent_transactions: list[RecentTransaction] = Field(
+        ...,
+        description="Últimas N transacciones del cliente, más recientes primero",
+    )
+    risk_flags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Banderas cualitativas de riesgo derivadas del comportamiento histórico. "
+            "Valores posibles: 'high_velocity', 'unusual_amount', 'concentrated_destination', "
+            "'frequent_cash_out', 'previously_flagged', 'new_client'"
+        ),
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "client_id": "C1231006815",
+                "stats": {
+                    "total_transactions": 47,
+                    "total_volume": 12340.50,
+                    "avg_amount": 262.5,
+                    "max_amount": 9831.20,
+                    "first_seen": "2024-01-15T08:22:00",
+                    "last_seen": "2024-03-20T14:10:00",
+                    "fraud_rate_historical": 0.021,
+                    "distinct_counterparties": 23,
+                    "most_used_type": "TRANSFER",
+                },
+                "recent_transactions": [
+                    {
+                        "transaction_id": "TXN-0042",
+                        "step": 187,
+                        "type": "TRANSFER",
+                        "amount": 1500.00,
+                        "nameDest": "C2056789123",
+                        "oldbalanceOrg": 2000.00,
+                        "newbalanceOrig": 500.00,
+                        "is_flagged_fraud": False,
+                    }
+                ],
+                "risk_flags": ["frequent_cash_out", "previously_flagged"],
+            }
+        }

@@ -50,6 +50,10 @@ from src.storage import (
     store_feedback,
 )
 
+from fastapi import APIRouter, HTTPException, Query
+from api.schemas.client import ClientProfileResponse
+from src.client_profile import build_client_profile
+
 router = APIRouter(prefix="/fraud", tags=["product"])
 
 API_SECRET_KEY = "centinela-secreto-123"
@@ -362,3 +366,35 @@ async def fraud_feedback(req: FeedbackRequest):
         transaction_id=req.transaction_id,
         decision=req.analyst_decision,
     )
+
+# ============================================================
+# GET /fraud/client/{name_orig}
+# ============================================================
+
+
+@router.get(
+    "/client/{name_orig}",
+    response_model=ClientProfileResponse,
+    summary="Perfil del cliente para el modal del analista",
+    description=(
+        "Devuelve estadísticas históricas, transacciones recientes y banderas "
+        "cualitativas de riesgo de un cliente. Usado por Full Stack para el "
+        "Client Profile Modal cuando el analista revisa un caso."
+    ),
+    responses={
+        404: {"description": "Cliente no encontrado en el histórico"},
+    },
+)
+def get_client_profile(
+    name_orig: str,
+    limit: int = Query(20, ge=1, le=100, description="Nº de transacciones recientes a devolver"),
+    offset: int = Query(0, ge=0, description="Offset para paginar transacciones recientes"),
+):
+    """Perfil del cliente para el Client Profile Modal."""
+    profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cliente '{name_orig}' no encontrado en el histórico",
+        )
+    return profile
