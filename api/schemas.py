@@ -13,7 +13,6 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator, Field, ConfigDict
 from typing import Literal
-from api.schemas import ClientProfileResponse
 
 TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
@@ -196,11 +195,12 @@ class ClientProfile(BaseModel):
     risk_profile: RiskLevel
     recent_transactions: list[TransactionSummary]
 
-    # ============================================================
+# ============================================================
 # Sub-modelos
 # ============================================================
 class ClientStats(BaseModel):
     """Estadísticas agregadas históricas del cliente."""
+    ...
 
     total_transactions: int = Field(..., description="Nº total de transacciones del cliente en el histórico")
     total_volume: float = Field(..., description="Suma de importes de todas sus transacciones (€)")
