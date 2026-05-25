@@ -51,7 +51,7 @@ from src.storage import (
 )
 
 from fastapi import APIRouter, HTTPException, Query
-from api.schemas.client import ClientProfileResponse
+from api.schemas import ClientProfileResponse
 from src.client_profile import build_client_profile
 
 router = APIRouter(prefix="/fraud", tags=["product"])
