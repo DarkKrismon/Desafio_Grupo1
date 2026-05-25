@@ -84,13 +84,6 @@ async def fraud_decide(
 
     score, risk = score_transaction(tx_data)
     decision = decision_from_score(score)
-
-    if score >= 0.80:
-        action = "BLOCK"
-    elif score >= 0.48:
-        action = "REVIEW"
-    else:
-        action = "ALLOW"
         
     response = DecideResponse(
         transaction_id=tx_data.transaction_id,
