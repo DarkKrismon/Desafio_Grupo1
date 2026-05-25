@@ -18,6 +18,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Request, Header
 from api.limiter import limiter
 from src.scoring import score_transaction
+from src.client_profile import build_client_profile
 
 from api.schemas import (
     ChallengeOption,
@@ -36,6 +37,7 @@ from api.schemas import (
     QueueResponse,
     RiskLevel,
     Transaction,
+    ClientProfileResponse
 )
 from src.scoring import (
     decision_from_score,
@@ -355,3 +357,29 @@ async def fraud_feedback(req: FeedbackRequest):
         transaction_id=req.transaction_id,
         decision=req.analyst_decision,
     )
+
+
+# ============================================================
+# GET /fraud/client/{name_orig}
+# ============================================================
+@router.get(
+    "/client/{name_orig}",
+    response_model=ClientProfileResponse,
+    summary="Perfil del cliente para el modal del analista",
+)
+async def get_client_profile(
+    name_orig: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Devuelve estadísticas históricas y banderas de riesgo consultando
+    directamente la base de datos de Full Stack.
+    """
+    profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cliente '{name_orig}' no encontrado en el histórico",
+        )
+    return profile

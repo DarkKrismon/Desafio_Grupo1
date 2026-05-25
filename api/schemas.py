@@ -187,22 +187,30 @@ class FeedbackResponse(BaseModel):
 # ============================================================
 # CLIENT PROFILE
 # ============================================================
-class TransactionSummary(BaseModel):
-    transaction_id: str
-    amount: float
-    type: str
-    merchant_category: str
-    ip_country: str
-    fraud_probability: float
-    decision: Decision
-    timestamp: datetime
+class ClientStats(BaseModel):
+    total_transactions: int = Field(..., description="Nº total de transacciones")
+    total_volume: float = Field(..., description="Suma de importes (€)")
+    avg_amount: float = Field(..., description="Importe medio (€)")
+    max_amount: float = Field(..., description="Mayor importe (€)")
+    first_seen: Optional[datetime] = Field(None, description="Primera vez visto")
+    last_seen: Optional[datetime] = Field(None, description="Última vez visto")
+    fraud_rate_historical: float = Field(..., description="Ratio de fraude")
+    distinct_counterparties: int = Field(..., description="Destinatarios distintos")
+    most_used_type: Optional[str] = Field(None, description="Tipo más frecuente")
 
-class ClientProfile(BaseModel):
-    nameOrig: str
-    total_transactions: int
-    total_amount_eur: float
-    fraud_flags: int
-    first_seen: datetime
-    last_seen: datetime
-    risk_profile: RiskLevel
-    recent_transactions: list[TransactionSummary]
+class RecentTransaction(BaseModel):
+    transaction_id: str
+    timestamp: Optional[datetime] = None
+    step: Optional[int] = None
+    type: str
+    amount: float
+    nameDest: str
+    oldbalanceOrg: float
+    newbalanceOrig: float
+    is_flagged_fraud: bool
+
+class ClientProfileResponse(BaseModel):
+    client_id: str
+    stats: ClientStats
+    recent_transactions: list[RecentTransaction]
+    risk_flags: list[str]
