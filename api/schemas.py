@@ -53,7 +53,7 @@ class Transaction(BaseModel):
     type: TransactionType = Field(description="Tipo de movimiento financiero")
     
     # Prevenimos montos negativos y números infinitamente grandes
-    amount: float = Field(ge=0.0, le=1_000_000_000.0, description="Importe de la transacción")
+    amount: float = Field(ge=10.0, le=500_000.0, description="Importe de la transacción")
     
     nameOrig: str = Field(min_length=1, max_length=50, description="ID del cliente origen")
     
