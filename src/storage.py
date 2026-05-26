@@ -1,86 +1,71 @@
-"""
-src/storage.py
-==============
-Almacenamiento en memoria.
+import os
+import uuid
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from datetime import datetime, timezone
+from dotenv import load_dotenv
 
-HOY: listas en memoria del proceso (se pierden al reiniciar).
-MAÑANA: sustituir por consultas a PostgreSQL / SQLite / MongoDB
-        sin tocar la API.
+load_dotenv()
+DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 
-Las funciones publicas son la interfaz que usan los endpoints.
-"""
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
-from datetime import datetime
-from typing import Optional
+def save_transaction(tx_data: dict):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        
+        query = """
+            INSERT INTO "Transactions" (
+                "transaction_id", "amount", "type", "nameOrig", "nameDest",
+                "oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest",
+                "ip_country", "merchant_category", "fraud_probability",
+                "risk_level", "decision", "status", "timestamp", "createdAt", "updatedAt", "step"
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        now_utc = datetime.now(timezone.utc)
+        
+        valores = (
+            str(uuid.uuid4()),
+            float(tx_data.get("amount", 0.0)),
+            str(tx_data.get("type", "UNKNOWN")),
+            str(tx_data.get("nameOrig", "UNKNOWN")),
+            str(tx_data.get("nameDest", "UNKNOWN")),
+            float(tx_data.get("oldbalanceOrg", 0.0)),
+            float(tx_data.get("newbalanceOrig", 0.0)),
+            float(tx_data.get("oldbalanceDest", 0.0)),
+            float(tx_data.get("newbalanceDest", 0.0)),
+            str(tx_data.get("ip_country", "UNKNOWN")),
+            str(tx_data.get("merchant_category", "UNKNOWN")),
+            float(tx_data.get("fraud_probability", 0.0)),
+            str(tx_data.get("risk_level", "low")),
+            str(tx_data.get("decision", "allow")),
+            "pending",  # El estado que ya sabemos que Full Stack acepta
+            now_utc,
+            now_utc,
+            now_utc,
+            1 
+        )
+        
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Error crítico de base de datos en save_transaction: {e}")
 
-from api.schemas import QueueItem, RiskLevel
-
-
-# ============================================================
-# ESTADO EN MEMORIA
-# ============================================================
-_pending_queue: list[QueueItem] = []
-_feedback_store: list[dict] = []
-
-
-# ============================================================
-# COLA DE CASOS PENDIENTES
-# ============================================================
-def add_to_queue(item: QueueItem) -> None:
-    """Anade un caso a la cola pendiente de revision."""
-    _pending_queue.append(item)
-
-
-def get_queue(
-    limit: int = 50,
-    risk_level: Optional[RiskLevel] = None,
-) -> list[QueueItem]:
-    """Devuelve la cola filtrada."""
-    items = _pending_queue
-    if risk_level:
-        items = [q for q in items if q.risk_level == risk_level]
-    return items[:limit]
-
-
-def queue_size(risk_level: Optional[RiskLevel] = None) -> int:
-    if risk_level:
-        return sum(1 for q in _pending_queue if q.risk_level == risk_level)
-    return len(_pending_queue)
-
-
-def find_in_queue(transaction_id: str) -> Optional[QueueItem]:
-    return next(
-        (q for q in _pending_queue if q.transaction_id == transaction_id),
-        None,
-    )
-
-
-def remove_from_queue(transaction_id: str) -> None:
-    global _pending_queue
-    _pending_queue = [
-        q for q in _pending_queue if q.transaction_id != transaction_id
-    ]
-
-
-# ============================================================
-# FEEDBACK DEL ANALISTA
-# ============================================================
-def store_feedback(
-    case_id: str,
-    transaction_id: str,
-    analyst_decision: str,
-    analyst_notes: Optional[str],
-    analyst_id: str,
-) -> None:
-    _feedback_store.append({
-        "case_id": case_id,
-        "transaction_id": transaction_id,
-        "analyst_decision": analyst_decision,
-        "analyst_notes": analyst_notes,
-        "analyst_id": analyst_id,
-        "timestamp": datetime.utcnow().isoformat(),
-    })
-
-
-def get_all_feedback() -> list[dict]:
-    return list(_feedback_store)
+def get_transactions():
+    # Solo como fallback. Limitado a 50 para no colapsar la memoria.
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM "Transactions" ORDER BY "timestamp" DESC LIMIT 50;')
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        print(f"❌ Error de base de datos en get_transactions: {e}")
+        return []

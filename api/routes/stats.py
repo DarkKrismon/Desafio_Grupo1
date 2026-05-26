@@ -1,32 +1,52 @@
-"""
-api/routes/stats.py
-===================
-Endpoint que expone estadisticas del dataset.
-
-Util para que Full Stack muestre en el dashboard:
-  - Volumen total procesado
-  - Tasa global de fraude
-  - Top paises y categorias mas peligrosas
-"""
-
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from fastapi import APIRouter
+from dotenv import load_dotenv
 
-from src.data_loader import get_summary_for_api
+load_dotenv()
+DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 
-router = APIRouter(prefix="/data", tags=["data"])
+router = APIRouter()
 
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
 
-@router.get(
-    "/stats",
-    summary="Estadisticas globales del dataset",
-)
-async def data_stats():
+@router.get("/")
+def get_general_stats():
     """
-    Devuelve un resumen del dataset historico:
-      - total de transacciones analizadas
-      - tasa global de fraude
-      - top paises mas peligrosos
-      - top categorias mas peligrosas
-      - estadisticas de monto
+    Devuelve las estadísticas delegando el esfuerzo computacional a Supabase.
     """
-    return get_summary_for_api()
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total_transactions,
+                SUM(CASE WHEN decision = 'block' THEN 1 ELSE 0 END) as blocked_transactions,
+                SUM(CASE WHEN decision = 'allow' THEN 1 ELSE 0 END) as allowed_transactions,
+                COALESCE(SUM(amount), 0) as total_volume
+            FROM "Transactions";
+        """)
+        stats = cur.fetchone()
+        
+        cur.close()
+        conn.close()
+        
+        total = stats['total_transactions']
+        blocked = stats['blocked_transactions']
+        allowed = stats['allowed_transactions']
+        
+        fraud_rate = (blocked / total) if total > 0 else 0.0
+        
+        return {
+            "total_transactions": total,
+            "fraud_rate": round(fraud_rate, 4),
+            "blocked_transactions": blocked,
+            "allowed_transactions": allowed,
+            "total_volume": float(stats['total_volume'])
+        }
+        
+    except Exception as e:
+        return {"error": f"Error de conexión con la base de datos: {str(e)}"}
