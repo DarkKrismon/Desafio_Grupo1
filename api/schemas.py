@@ -53,7 +53,7 @@ class Transaction(BaseModel):
     type: TransactionType = Field(description="Tipo de movimiento financiero")
     
     # Prevenimos montos negativos y números infinitamente grandes
-    amount: float = Field(ge=10.0, le=1_000_000_000.0, description="Importe de la transacción")
+    amount: float = Field(ge=10.0, le=1_000_000.0, description="Importe de la transacción")
     
     # 3. Validamos formato C + 9 dígitos para identificadores de cliente
     nameOrig: str = Field(min_length=10, max_length=10, description="ID del cliente origen")
@@ -82,6 +82,18 @@ class Transaction(BaseModel):
             )
         return v
 
+    @field_validator("amount")
+    @classmethod
+    def round_amount(cls, v: float) -> float:
+        return round(v, 2)
+    
+    @field_validator("newbalanceOrig")
+    @classmethod
+    def validate_balance(cls, v: float, info) -> float:
+        expected = round(info.data["oldbalanceOrg"] - info.data["amount"], 2)
+        if abs(v - expected) > 0.01:
+            raise ValueError(f"newbalanceOrig no cuadra con oldbalanceOrg - amount. Esperado: {expected}")
+        return v
 
 class FeedbackRequest(BaseModel):
     transaction_id: str = Field(..., example="TXN-002")

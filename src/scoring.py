@@ -72,11 +72,14 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     drain_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     if drain_ratio > 0.15 and has_risk_signal:
         bonus += 0.12
+<<<<<<< Updated upstream
 
     # Hora sospechosa (2h - 5h) con señal de riesgo activa
     if hasattr(tx, 'hour_of_the_day') and tx.hour_of_the_day is not None:
         if 2 <= tx.hour_of_the_day <= 5 and has_risk_signal:
             bonus += 0.06
+=======
+>>>>>>> Stashed changes
  
     # Vaciado total de cuenta: aplica a cualquier tipo de drenaje
     # Corrige el bug anterior que ignoraba TRANSFER y DEBIT
