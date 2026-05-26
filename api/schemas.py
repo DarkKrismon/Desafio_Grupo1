@@ -9,10 +9,11 @@ NO los cambies sin avisar al equipo.
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, List, Literal
 
 from pydantic import BaseModel, field_validator, Field, ConfigDict
-from typing import Literal
+
+
 
 TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
@@ -227,3 +228,11 @@ class ClientProfileResponse(BaseModel):
     stats: ClientStats
     recent_transactions: list[RecentTransaction]
     risk_flags: list[str]
+
+
+
+class DecisionResponse(BaseModel):
+    transaction_id: str
+    decision: str
+    fraud_probability: float
+    risk_factors: List[str] = []
