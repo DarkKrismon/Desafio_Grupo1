@@ -22,6 +22,11 @@ Este documento registra las decisiones técnicas y de negocio tomadas por el equ
 **Justificación:** Un ratio del 25% refleja mayor riesgo sin sesgo absoluto. El modelo aprende que esos países son zonas de mayor riesgo, pero que 3 de cada 4 transacciones son legítimas.  
 **Alternativa descartada:** Eliminar ip_country como feature. Se descartó porque el país sigue siendo una señal de riesgo válida cuando se combina con otras features.
 
+### Balanceo de categorías de alto riesgo
+**Decisión:** Generar transacciones legítimas sintéticas para las categorías `crypto` y `electronics` hasta alcanzar ratios de fraude del 26% y 28% respectivamente, guardadas en `synthetic_fin_data_CLEAN.csv`.  
+**Justificación:** El dataset original tenía un 100% de fraude en estas categorías, causando el mismo sesgo determinista que con los países de alto riesgo. Se evitó un ratio exacto del 25% para que el modelo no aprenda un patrón simétrico entre países y categorías.  
+**Responsable:** Eduardo (data cleaning).
+
 ---
 
 ## 02 · Feature Engineering
@@ -62,13 +67,13 @@ Este documento registra las decisiones técnicas y de negocio tomadas por el equ
 **Decisión:** Optimizar el threshold usando F2-Score en lugar de F1.  
 **Justificación:** En detección de fraude, un falso negativo (fraude no detectado) es más costoso que un falso positivo (transacción legítima bloqueada). El F2-Score penaliza más los falsos negativos al dar doble peso al recall.
 
-### Threshold R1: 0.65
-**Decisión:** Threshold de clasificación 0.65 para R1.  
-**Justificación:** Valor óptimo calculado mediante búsqueda exhaustiva maximizando F2-Score sobre el test set. Precision 0.97, Recall 0.99, ROC-AUC 0.9999.
+### Threshold R1: 0.45
+**Decisión:** Threshold de clasificación 0.45 para R1 tras reentrenamiento con dataset CLEAN.  
+**Justificación:** Override manual sobre el óptimo F2. El F2 tendía a thresholds bajos (0.30-0.35) maximizando recall a costa de falsas alarmas. Con 0.45 se obtienen solo 12 fraudes perdidos y 96 falsas alarmas, con Precision 0.94, Recall 0.99, ROC-AUC 0.9999.
 
-### Threshold R2: 0.90
-**Decisión:** Threshold de clasificación 0.90 para R2.  
-**Justificación:** El dataset balanceado tiene patrones más separables, el modelo asigna scores muy altos a fraudes claros. Un threshold alto reduce falsas alarmas manteniendo recall perfecto (0 fraudes perdidos).
+### Threshold R2: 0.80
+**Decisión:** Threshold de clasificación 0.80 para R2 tras reentrenamiento con dataset CLEAN.  
+**Justificación:** Valor óptimo por F2 automático. El modelo R2 asigna scores muy altos a fraudes claros gracias a las features de comportamiento financiero. Con 0.80 se obtiene Precision 0.99, Recall 1.00, ROC-AUC 0.9992.
 
 ---
 
@@ -126,7 +131,7 @@ Esta sección registra los cambios entre rondas del modelo y deja constancia exp
 
 ### Cambios R1 → R2
 
-**Decisión:** R2 introduce features de comportamiento financiero (errores de balance, ratios de vaciado, hora cíclica) y eleva el threshold de clasificación de R1 a 0.90.  
+**Decisión:** R2 introduce features de comportamiento financiero (errores de balance, ratios de vaciado, hora cíclica) y eleva el threshold de clasificación de R1 a 0.80.  
 **Justificación:** R1 detecta fraude obvio basado en señales externas; R2 se diseñó para fraude sigiloso sobre un dataset balanceado con patrones más separables, lo que permite un threshold más alto sin perder recall. El detalle de features está en la sección 02 y el detalle del threshold en la sección 03.  
 **Estado de la documentación técnica:** Los documentos `Documentacion_Logica_API.md` y `Procesamiento_ML.md` describen el pipeline de R1. R2 se activa en tiempo de arranque mediante la variable de entorno `MODEL_VERSION=r2` (ver sección 04), sin cambios en el contrato de la API. La documentación técnica de R2 queda pendiente de redactar como entrega separada.
 
