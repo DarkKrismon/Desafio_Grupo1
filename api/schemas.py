@@ -79,7 +79,7 @@ class Transaction(BaseModel):
         import re
         if not re.match(r"^C\d{10}$", v):
             raise ValueError(
-                f"Identificador inválido: '{v}'. Formato esperado: C seguido de 9 dígitos (ej. C123456789)"
+                f"Identificador inválido: '{v}'. Formato esperado: C seguido de 10 dígitos (ej. C123456789)"
             )
         return v
 
