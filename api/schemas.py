@@ -57,12 +57,12 @@ class Transaction(BaseModel):
     amount: float = Field(ge=10.0, le=1_000_000.0, description="Importe de la transacción")
     
     # 3. Validamos formato C + 9 dígitos para identificadores de cliente
-    nameOrig: str = Field(min_length=10, max_length=10, description="ID del cliente origen")
+    nameOrig: str = Field(min_length=11, max_length=11, description="ID del cliente origen")
     
     oldbalanceOrg: float = Field(ge=0.0, description="Saldo inicial del origen")
     newbalanceOrig: float = Field(ge=0.0, description="Saldo final del origen")
     
-    nameDest: str = Field(min_length=10, max_length=10, description="ID del cliente destino")
+    nameDest: str = Field(min_length=11, max_length=11, description="ID del cliente destino")
 
     
     oldbalanceDest: float = Field(ge=0.0, description="Saldo inicial del destino")
