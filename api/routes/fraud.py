@@ -18,7 +18,10 @@ from api.limiter import limiter
 from src.scoring import score_transaction, decision_from_score
 from src.client_profile import build_client_profile
 
-from src.storage import save_transaction, get_pending_queue, resolve_case
+from src.storage import save_transaction, get_pending_queue, resolve_case, get_connection
+
+from src.llm_explainer import analyze_fraud_with_llm
+from psycopg2.extras import RealDictCursor
 
 from api.schemas import (
     ChallengeOption, ChallengeRequest, ChallengeResponse,
@@ -174,3 +177,45 @@ async def get_client_profile(
     if profile is None:
         raise HTTPException(status_code=404, detail=f"Cliente '{name_orig}' no encontrado")
     return profile
+
+
+# ============================================================
+# POST /fraud/explain
+# ============================================================
+# ============================================================
+# GET /fraud/explain/{transaction_id}
+# ============================================================
+@router.get("/explain/{transaction_id}", summary="Explicación del fraude simplificada")
+async def fraud_explain_simple(transaction_id: str):
+    # 1. Buscamos la transacción directamente con el ID de la URL
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM "Transactions" WHERE transaction_id = %s', (transaction_id,))
+        tx = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error conectando a la base de datos.")
+    
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transacción no encontrada.")
+
+    # 2. Preparamos el payload anonimizado
+    anon_data = {
+        "step_hours": tx["step"],
+        "type": tx["type"],
+        "amount": tx["amount"],
+        "oldbalanceOrg": tx["oldbalanceOrg"],
+        "newbalanceOrig": tx["newbalanceOrig"],
+        "oldbalanceDest": tx["oldbalanceDest"],
+        "newbalanceDest": tx["newbalanceDest"],
+        "ip_country": tx["ip_country"],
+        "merchant_category": tx["merchant_category"]
+    }
+
+    # 3. Delegamos el trabajo al módulo LLM
+    explicacion = analyze_fraud_with_llm(anon_data)
+
+    # 4. Devolvemos el JSON minimalista
+    return {"narrative": explicacion}
