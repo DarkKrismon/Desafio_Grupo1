@@ -70,6 +70,7 @@ class Transaction(BaseModel):
     # Validamos que no nos pasen categorías o países absurdamente largos
     merchant_category: str | None = Field(default="unknown", max_length=30)
     ip_country: str | None = Field(default="unknown", max_length=10)
+    hour_of_the_day: int | None = Field(default=None, ge=0, le=23, description="Hora del día (0-23)")
 
     @field_validator("nameOrig", "nameDest")
     @classmethod
