@@ -72,6 +72,11 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     drain_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     if drain_ratio > 0.15 and has_risk_signal:
         bonus += 0.12
+
+    # Hora sospechosa (2h - 5h) con señal de riesgo activa
+    if hasattr(tx, 'hour_of_the_day') and tx.hour_of_the_day is not None:
+        if 2 <= tx.hour_of_the_day <= 5 and has_risk_signal:
+            bonus += 0.06
  
     # Vaciado total de cuenta: aplica a cualquier tipo de drenaje
     # Corrige el bug anterior que ignoraba TRANSFER y DEBIT
@@ -122,7 +127,8 @@ def build_features_r2(tx: Transaction) -> pd.DataFrame:
     amount_to_orig_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     both_orig_zero       = 1 if (tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0) else 0
     both_balances_zero   = 1 if (tx.oldbalanceOrg == 0 and tx.oldbalanceDest == 0) else 0
- 
+    zero_balance_after = 1 if tx.newbalanceOrig == 0 else 0
+
     # Hora cíclica: sin step disponible usamos 0 como neutro
     hour     = tx.step % 24
     hour_sin = float(np.sin(2 * np.pi * hour / 24))
@@ -134,11 +140,13 @@ def build_features_r2(tx: Transaction) -> pd.DataFrame:
         "newbalanceOrig":       tx.newbalanceOrig,
         "oldbalanceDest":       tx.oldbalanceDest,
         "newbalanceDest":       tx.newbalanceDest,
+        "balance_error_orig":   balance_error_orig,
         "balance_error_dest":   balance_error_dest,
         "drain_ratio_orig":     drain_ratio_orig,
         "dest_received_ratio":  dest_received_ratio,
         "amount_to_orig_ratio": amount_to_orig_ratio,
         "both_orig_zero":       both_orig_zero,
+        "zero_balance_after":   zero_balance_after,
         "both_balances_zero":   both_balances_zero,
         "hour_sin":             hour_sin,
         "hour_cos":             hour_cos,
