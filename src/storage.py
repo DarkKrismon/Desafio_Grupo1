@@ -28,7 +28,7 @@ def save_transaction(tx_data: dict):
         now_utc = datetime.now(timezone.utc)
         
         valores = (
-            str(uuid.uuid4()),
+            str(tx_data.get("transaction_id", str(uuid.uuid4()))),
             float(tx_data.get("amount", 0.0)),
             str(tx_data.get("type", "UNKNOWN")),
             str(tx_data.get("nameOrig", "UNKNOWN")),
@@ -69,3 +69,62 @@ def get_transactions():
     except Exception as e:
         print(f"❌ Error de base de datos en get_transactions: {e}")
         return []
+    
+
+from psycopg2.extras import RealDictCursor
+
+def get_pending_queue(limit: int = 50, risk_level: str = None):
+    """Obtiene de Supabase las transacciones que están pendientes de revisión."""
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        query = 'SELECT * FROM "Transactions" WHERE status = %s'
+        params = ['pending']
+        
+        if risk_level:
+            query += ' AND risk_level = %s'
+            # Convertimos el Enum a string si es necesario
+            params.append(risk_level.value if hasattr(risk_level, 'value') else risk_level)
+            
+        query += ' ORDER BY timestamp DESC LIMIT %s'
+        params.append(limit)
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        # Consultamos el conteo total para la paginación del frontend
+        count_query = 'SELECT COUNT(*) FROM "Transactions" WHERE status = %s'
+        count_params = ['pending']
+        if risk_level:
+            count_query += ' AND risk_level = %s'
+            count_params.append(risk_level.value if hasattr(risk_level, 'value') else risk_level)
+            
+        cur.execute(count_query, count_params)
+        total_pending = cur.fetchone()['count']
+        
+        cur.close()
+        conn.close()
+        
+        return total_pending, [dict(row) for row in rows]
+    except Exception as e:
+        print(f"❌ Error en DB leyendo la cola: {e}")
+        return 0, []
+
+def resolve_case(transaction_id: str, decision: str, analyst_id: str):
+    """Actualiza una transacción en Supabase marcándola como revisada por un humano."""
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        
+        # Cambiamos el estado a 'reviewed' y guardamos la decisión final del analista
+        cur.execute(
+            'UPDATE "Transactions" SET status = %s, decision = %s, "updatedAt" = %s WHERE transaction_id = %s',
+            ('reviewed', decision, datetime.now(timezone.utc), transaction_id)
+        )
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Error actualizando estado en DB: {e}")

@@ -1,58 +1,176 @@
-import joblib
-import pandas as pd
-from fastapi import APIRouter, HTTPException
-from api.schemas import Transaction, DecisionResponse
-from src.scoring import score_transaction
-from src.storage import save_transaction
+"""
+api/routes/fraud.py
+===================
+Endpoints de producto (lo que NovaPay integraria):
+  POST   /fraud/decide            -> decision en tiempo real
+  GET    /fraud/queue             -> cola de casos pendientes
+  POST   /fraud/decide/preview    -> what-if de umbrales
+  POST   /fraud/challenge         -> recomendacion adaptativa de friccion
+  POST   /fraud/feedback          -> cierre del caso por analista
+"""
 
-# Inicialización del Router
-router = APIRouter(prefix="/fraud", tags=["Fraud Detection"])
+from datetime import datetime, timezone
+from typing import Optional
+from uuid import uuid4
 
-# Cargar el modelo en memoria una sola vez al arrancar
-try:
-    model = joblib.load("model/xgboost_fraud_model.joblib")
-    print("✅ Modelo XGBoost cargado correctamente.")
-except Exception as e:
-    model = None
-    print(f"⚠️ Advertencia crítica: No se pudo cargar el modelo. {e}")
+from fastapi import APIRouter, HTTPException, Query, Request, Header
+from api.limiter import limiter
+from src.scoring import score_transaction, decision_from_score
+from src.client_profile import build_client_profile
 
-@router.post("/decide", response_model=DecisionResponse)
-def decide_fraud(tx: Transaction):
-    if model is None:
-        raise HTTPException(status_code=500, detail="Motor de Machine Learning inactivo.")
+from src.storage import save_transaction, get_pending_queue, resolve_case
 
-    try:
-        # 1. Transformamos la petición (Pydantic) a un diccionario estándar
-        tx_dict = tx.model_dump()
-        
-        # 2. Pasamos la transacción por tus reglas heurísticas de negocio
-        scoring_result = score_transaction(tx)
-        
-        # 3. Metemos los datos en un DataFrame de 1 sola fila para que XGBoost no se queje
-        df = pd.DataFrame([tx_dict])
-        
-        # 4. Inferencia: calculamos la probabilidad matemática y la etiqueta binaria
-        fraud_prob = float(model.predict_proba(df)[0][1])
-        is_fraud = int(model.predict(df)[0])
-        
-        # 5. Decisión Final: Si la IA detecta fraude O tus reglas de negocio lo exigen, se bloquea
-        decision = "block" if (is_fraud == 1 or scoring_result.get("action") == "block") else "allow"
-        
-        # 6. Añadimos el veredicto de vuelta al diccionario para la base de datos
-        tx_dict["fraud_probability"] = fraud_prob
-        tx_dict["risk_level"] = "high" if decision == "block" else "low"
-        tx_dict["decision"] = decision
-        
-        # 7. Inyección limpia en la base de datos de producción (Full Stack)
-        save_transaction(tx_dict)
-        
-        # 8. Devolvemos la respuesta formateada al frontend
-        return DecisionResponse(
-            transaction_id="generado-en-db", # Supabase asignará el UUID real
-            decision=decision,
-            fraud_probability=fraud_prob,
-            risk_factors=scoring_result.get("flags", [])
-        )
+from api.schemas import (
+    ChallengeOption, ChallengeRequest, ChallengeResponse,
+    Decision, DecideResponse, ExplainRequest, ExplainResponse,
+    FeedbackRequest, FeedbackResponse, PreviewMetrics, PreviewRequest, PreviewResponse,
+    QueueItem, QueueResponse, RiskLevel, Transaction, ClientProfileResponse
+)
 
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error en el motor de inferencia: {str(e)}")
+router = APIRouter(prefix="/fraud", tags=["product"])
+
+API_SECRET_KEY = "centinela-secreto-123"
+
+# ============================================================
+# POST /fraud/decide
+# ============================================================
+@router.post("/decide", response_model=DecideResponse, summary="Decision de fraude en tiempo real")
+@limiter.limit("30/minute")
+async def fraud_decide(
+    request: Request, 
+    tx_data: Transaction,
+    x_api_key: str = Header(None, alias="X-API-Key")
+):
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Acceso denegado. API Key inválida o faltante.")
+
+    # 1. Tu lógica original de negocio y Machine Learning
+    score, risk = score_transaction(tx_data)
+    decision = decision_from_score(score)
+        
+    response = DecideResponse(
+        transaction_id=tx_data.transaction_id,
+        decision=decision,
+        fraud_probability=score,
+        risk_level=risk,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    # 2. Guardamos TODO en la base de datos de Supabase
+    tx_dict = tx_data.model_dump()
+    tx_dict["fraud_probability"] = score
+    tx_dict["risk_level"] = risk.value
+    tx_dict["decision"] = decision.value
+    
+    # El estado por defecto que pusimos en storage.py es "pending".
+    # Las de web podrán consumirlo para su bandeja de revisión.
+    save_transaction(tx_dict)
+
+    return response
+
+# ============================================================
+# GET /fraud/queue
+# ============================================================
+@router.get("/queue", response_model=QueueResponse, summary="Cola de casos pendientes de revision")
+async def fraud_queue(
+    limit: int = Query(default=50, le=200),
+    risk_level: Optional[RiskLevel] = None,
+):
+    # Ahora lee transacciones reales de Supabase que tengan status='pending'
+    total_pending, items = get_pending_queue(limit=limit, risk_level=risk_level)
+    return QueueResponse(
+        total_pending=total_pending,
+        queue=items,
+    )
+
+# ============================================================
+# POST /fraud/decide/preview
+# ============================================================
+@router.post("/decide/preview", response_model=PreviewResponse, summary="What-if: simula impacto")
+async def fraud_preview(req: PreviewRequest):
+    # (Funcionalidad original mantenida intacta)
+    current = PreviewMetrics(
+        threshold_block=0.75, threshold_review=0.50, blocked=142, reviewed=380, allowed=9478,
+        fraud_caught=38, false_positives=12, money_saved_eur=28400.0,
+    )
+
+    threshold_delta = 0.75 - req.threshold_block
+    extra_blocked = int(threshold_delta * 1000)
+    extra_fraud_caught = int(threshold_delta * 100)
+    extra_false_positives = int(threshold_delta * 900)
+    extra_money_saved = threshold_delta * 50000
+
+    preview = PreviewMetrics(
+        threshold_block=req.threshold_block, threshold_review=req.threshold_review,
+        blocked=current.blocked + extra_blocked, reviewed=current.reviewed + int(threshold_delta * 500),
+        allowed=current.allowed - extra_blocked - int(threshold_delta * 500),
+        fraud_caught=current.fraud_caught + extra_fraud_caught,
+        false_positives=current.false_positives + extra_false_positives,
+        money_saved_eur=round(current.money_saved_eur + extra_money_saved, 2),
+    )
+
+    recommendation = "Análisis de impacto calculado."
+    if extra_fraud_caught > 0 and extra_false_positives < extra_fraud_caught * 10:
+        recommendation = f"Recomendado: Ahorro neto estimado: {extra_money_saved:.0f} EUR."
+
+    return PreviewResponse(
+        current_config=current, preview_config=preview,
+        delta={"extra_fraud_caught": extra_fraud_caught, "extra_false_positives": extra_false_positives, "recommendation": recommendation}
+    )
+
+# ============================================================
+# POST /fraud/challenge
+# ============================================================
+@router.post("/challenge", response_model=ChallengeResponse, summary="Friccion adaptativa")
+async def fraud_challenge(req: ChallengeRequest):
+    # (Funcionalidad original mantenida intacta)
+    score = req.fraud_probability
+    ctx = req.transaction_context
+
+    if score < 0.45:
+        primary = ChallengeOption(action="allow", friction="none", user_message="Aprobada.")
+    elif score < 0.60:
+        primary = ChallengeOption(action="sms_otp", friction="low", user_message="Enviado código SMS.")
+    elif score < 0.75:
+        primary = ChallengeOption(action="biometric_auth", friction="medium", user_message="Verifica identidad.")
+    else:
+        primary = ChallengeOption(action="manual_review", friction="high", user_message="En revisión.")
+
+    return ChallengeResponse(
+        transaction_id=req.transaction_id, recommended_action=primary.action,
+        primary_option=primary, alternative_options=[], reasoning="Cálculo basado en score."
+    )
+
+# ============================================================
+# POST /fraud/feedback
+# ============================================================
+@router.post("/feedback", response_model=FeedbackResponse, summary="Cierre del caso por analista")
+async def fraud_feedback(req: FeedbackRequest):
+    """
+    Cuando el analista aprueba o bloquea en el panel web, actualizamos la base de datos real.
+    """
+    case_id = f"case_{uuid4().hex[:8]}"
+    
+    # Esta función actualizará el status a 'reviewed' en Supabase
+    resolve_case(req.transaction_id, req.analyst_decision, req.analyst_id)
+
+    return FeedbackResponse(
+        status="stored",
+        case_id=case_id,
+        transaction_id=req.transaction_id,
+        decision=req.analyst_decision,
+    )
+
+# ============================================================
+# GET /fraud/client/{name_orig}
+# ============================================================
+@router.get("/client/{name_orig}", response_model=ClientProfileResponse, summary="Perfil del cliente")
+async def get_client_profile(
+    name_orig: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Cliente '{name_orig}' no encontrado")
+    return profile
