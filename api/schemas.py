@@ -56,13 +56,13 @@ class Transaction(BaseModel):
     # Prevenimos montos negativos y números infinitamente grandes
     amount: float = Field(ge=10.0, le=1_000_000.0, description="Importe de la transacción")
     
-    # 3. Validamos formato C + 9 dígitos para identificadores de cliente
-    nameOrig: str = Field(min_length=11, max_length=11, description="ID del cliente origen")
+    # 3. Validamos formato C + 10 dígitos para identificadores de cliente
+    nameOrig: str = Field(min_length=9, max_length=11, description="ID del cliente origen")
     
     oldbalanceOrg: float = Field(ge=0.0, description="Saldo inicial del origen")
     newbalanceOrig: float = Field(ge=0.0, description="Saldo final del origen")
     
-    nameDest: str = Field(min_length=11, max_length=11, description="ID del cliente destino")
+    nameDest: str = Field(min_length=9, max_length=11, description="ID del cliente destino")
 
     
     oldbalanceDest: float = Field(ge=0.0, description="Saldo inicial del destino")
@@ -77,7 +77,7 @@ class Transaction(BaseModel):
     @classmethod
     def validate_client_id(cls, v: str) -> str:
         import re
-        if not re.match(r"^C\d{10}$", v):
+        if not re.match(r"^C\d{9,10}$", v):
             raise ValueError(
                 f"Identificador inválido: '{v}'. Formato esperado: C seguido de 10 dígitos (ej. C123456789)"
             )
