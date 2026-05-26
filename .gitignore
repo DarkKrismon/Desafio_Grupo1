@@ -9,9 +9,9 @@ env/
 *.key
 
 # Archivos de Datos (Evitar subir CSVs pesados o sensibles)
-data/*.csv
-data/*.xlsx
-data/*.json
+data/
+*.csv
+*.json
 
 # Archivos compilados de Python
 __pycache__/
