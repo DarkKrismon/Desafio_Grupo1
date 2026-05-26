@@ -122,7 +122,15 @@ async def fraud_decide(
 async def fraud_queue(
     limit: int = Query(default=50, le=200),
     risk_level: Optional[RiskLevel] = None,
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Requerimos API Key para proteger la cola de casos pendientes
 ):
+    # Verificamos que la API Key sea válida antes de mostrar la cola de revisión
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+
     items = get_queue(limit=limit, risk_level=risk_level)
     return QueueResponse(
         total_pending=queue_size(risk_level=risk_level),
@@ -334,10 +342,20 @@ async def fraud_challenge(req: ChallengeRequest):
     response_model=FeedbackResponse,
     summary="Cierra el ciclo: el analista marca el resultado real",
 )
-async def fraud_feedback(req: FeedbackRequest):
+async def fraud_feedback(
+    req: FeedbackRequest,
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Requerimos API Key para proteger el cierre de casos
+):
     """
     El analista cierra el caso. Esto se guarda para auditoria y reentrenamiento.
     """
+    # Verificamos que la API Key sea válida antes de procesar el feedback
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+
     case_id = f"case_{uuid4().hex[:8]}"
 
     store_feedback(
@@ -371,11 +389,19 @@ async def get_client_profile(
     name_orig: str,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Requerimos API Key para proteger datos del cliente
 ):
     """
     Devuelve estadísticas históricas y banderas de riesgo consultando
     directamente la base de datos de Full Stack.
     """
+    # Verificamos que la API Key sea válida antes de devolver datos sensibles
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+    
     profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
     if profile is None:
         raise HTTPException(

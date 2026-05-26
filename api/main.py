@@ -24,6 +24,8 @@ from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
 from api.limiter import limiter
 
@@ -31,6 +33,8 @@ app = FastAPI(
     title="Sentinel API",
     description="Fraud DNA detection for adaptive threats - NovaPay",
     version="0.1.0",
+    docs_url=None,      # Deshabilitamos el acceso público a la documentación Swagger
+    redoc_url=None,     # Deshabilitamos el acceso público a la documentación ReDoc
 )
 
 # Ahora configura TODO sobre esta única app
@@ -40,8 +44,8 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=["http://localhost:3000"],  # Restringimos el acceso solo al frontend autorizado
+    allow_methods=["GET", "POST", "PATCH"],   # Permitimos únicamente los métodos HTTP necesarios
     allow_headers=["*"],
 )
 
@@ -52,3 +56,8 @@ app.include_router(stats.router)
 @app.get("/", include_in_schema=False)
 async def root():
     return {"service": "Sentinel API", "version": app.version, "docs": "/docs"}
+
+@app.exception_handler(404)
+async def not_found(request, exc):
+    # Ocultamos información de la arquitectura interna ante rutas inexistentes
+    return JSONResponse(status_code=404, content={"detail": "Not found"})

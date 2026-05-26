@@ -94,6 +94,18 @@ class Transaction(BaseModel):
         if abs(v - expected) > 0.01:
             raise ValueError(f"newbalanceOrig no cuadra con oldbalanceOrg - amount. Esperado: {expected}")
         return v
+    
+    @field_validator("transaction_id", "merchant_category", "ip_country")
+    @classmethod
+    def sanitize_strings(cls, v: str) -> str:
+        if v is None:
+            return v
+        # Eliminamos caracteres que pueden ser usados en ataques XSS
+        import re
+        clean = re.sub(r"[<>\"'%;()&+]", "", v)
+        if clean != v:
+            raise ValueError("El campo contiene caracteres no permitidos")
+        return clean
 
 class FeedbackRequest(BaseModel):
     transaction_id: str = Field(..., example="TXN-002")
