@@ -1,29 +1,20 @@
-"""
-api/routes/meta.py
-==================
-Endpoints meta: health, ready, info del sistema.
-"""
-
 from fastapi import APIRouter
+from src.storage import get_connection
 
-from src.storage import queue_size
-from src.scoring import pipeline
-
-router = APIRouter(tags=["meta"])
-
+router = APIRouter(prefix="/meta", tags=["Meta"])
 
 @router.get("/health")
-async def health():
-    """Healthcheck basico."""
-    return {"status": "ok", "service": "sentinel-api"}
+def health_check():
+    """Endpoint para comprobar que la API y la Base de Datos están vivas"""
+    db_status = "ok"
+    try:
+        conn = get_connection()
+        conn.close()
+    except Exception:
+        db_status = "error_db"
 
-
-@router.get("/ready")
-async def ready():
-    """Readiness: confirma estado del modelo y servicios."""
     return {
-        "status": "ready",
-        "model_loaded": pipeline is not None,
-        "model_version": "xgb-v1.0",
-        "queue_size": queue_size(),
+        "status": "up",
+        "database": db_status,
+        "version": "1.0.0"
     }
