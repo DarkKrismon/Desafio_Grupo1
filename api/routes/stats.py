@@ -6,47 +6,49 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DATABASE_URL = os.getenv("SUPABASE_DB_URL")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "1.0.0")
 
-router = APIRouter()
+# Prefijo exacto que pide el equipo de Full Stack
+router = APIRouter(prefix="/data", tags=["Stats"])
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
-@router.get("/")
-def get_general_stats():
+@router.get("/stats")
+def get_global_stats():
     """
-    Devuelve las estadísticas delegando el esfuerzo computacional a Supabase.
+    Devuelve estadísticas globales combinando datos en tiempo real de Supabase 
+    con las métricas de rendimiento estáticas del modelo.
     """
     try:
         conn = get_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
+        # Leemos los números reales de lo que hay inyectado en producción
         cur.execute("""
             SELECT 
                 COUNT(*) as total_transactions,
-                SUM(CASE WHEN decision = 'block' THEN 1 ELSE 0 END) as blocked_transactions,
-                SUM(CASE WHEN decision = 'allow' THEN 1 ELSE 0 END) as allowed_transactions,
-                COALESCE(SUM(amount), 0) as total_volume
+                SUM(CASE WHEN decision = 'block' THEN 1 ELSE 0 END) as fraud_detected
             FROM "Transactions";
         """)
-        stats = cur.fetchone()
+        db_stats = cur.fetchone()
         
         cur.close()
         conn.close()
         
-        total = stats['total_transactions']
-        blocked = stats['blocked_transactions']
-        allowed = stats['allowed_transactions']
+        total = db_stats['total_transactions'] or 0
+        fraud_detected = db_stats['fraud_detected'] or 0
         
-        fraud_rate = (blocked / total) if total > 0 else 0.0
-        
+        # En producción sin etiquetas perfectas (ground truth), 
+        # el TPR (detection rate) y FPR se sacan del rendimiento en validación.
         return {
+            "round": 1 if "r1" in MODEL_VERSION.lower() else 2,
             "total_transactions": total,
-            "fraud_rate": round(fraud_rate, 4),
-            "blocked_transactions": blocked,
-            "allowed_transactions": allowed,
-            "total_volume": float(stats['total_volume'])
+            "fraud_detected": int(fraud_detected),
+            "detection_rate": 0.87, 
+            "false_positive_rate": 0.12,
+            "model_version": MODEL_VERSION
         }
         
     except Exception as e:
-        return {"error": f"Error de conexión con la base de datos: {str(e)}"}
+        return {"error": f"Error de conexión DB: {str(e)}"}
