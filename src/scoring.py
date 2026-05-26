@@ -71,7 +71,7 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     has_risk_signal = (tx.ip_country in high_risk_countries or tx.merchant_category in high_risk_categories)
     drain_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     if drain_ratio > 0.15 and has_risk_signal:
-    bonus += 0.12
+        bonus += 0.12
  
     # Vaciado total de cuenta: aplica a cualquier tipo de drenaje
     # Corrige el bug anterior que ignoraba TRANSFER y DEBIT
