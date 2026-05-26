@@ -1,385 +1,58 @@
-"""
-api/routes/fraud.py
-===================
-Endpoints de producto (lo que NovaPay integraria):
-
-  POST   /fraud/decide            -> decision en tiempo real
-  GET    /fraud/queue             -> cola de casos pendientes
-  POST   /fraud/decide/explain    -> explicabilidad (XAI)
-  POST   /fraud/decide/preview    -> what-if de umbrales
-  POST   /fraud/challenge         -> recomendacion adaptativa de friccion
-  POST   /fraud/feedback          -> cierre del caso por analista
-"""
-
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import uuid4
-
-from fastapi import APIRouter, HTTPException, Query, Request, Header
-from api.limiter import limiter
+import joblib
+import pandas as pd
+from fastapi import APIRouter, HTTPException
+from api.schemas import Transaction, DecisionResponse
 from src.scoring import score_transaction
-from src.client_profile import build_client_profile
+from src.storage import save_transaction
 
-from api.schemas import (
-    ChallengeOption,
-    ChallengeRequest,
-    ChallengeResponse,
-    Decision,
-    DecideResponse,
-    ExplainRequest,
-    ExplainResponse,
-    FeedbackRequest,
-    FeedbackResponse,
-    PreviewMetrics,
-    PreviewRequest,
-    PreviewResponse,
-    QueueItem,
-    QueueResponse,
-    RiskLevel,
-    Transaction,
-    ClientProfileResponse
-)
-from src.scoring import (
-    decision_from_score,
-    score_transaction,
-)
-from src.storage import (
-    add_to_queue,
-    find_in_queue,
-    get_queue,
-    queue_size,
-    remove_from_queue,
-    store_feedback,
-)
+# Inicialización del Router
+router = APIRouter(prefix="/fraud", tags=["Fraud Detection"])
 
-router = APIRouter(prefix="/fraud", tags=["product"])
+# Cargar el modelo en memoria una sola vez al arrancar
+try:
+    model = joblib.load("model/xgboost_fraud_model.joblib")
+    print("✅ Modelo XGBoost cargado correctamente.")
+except Exception as e:
+    model = None
+    print(f"⚠️ Advertencia crítica: No se pudo cargar el modelo. {e}")
 
-API_SECRET_KEY = "centinela-secreto-123"
+@router.post("/decide", response_model=DecisionResponse)
+def decide_fraud(tx: Transaction):
+    if model is None:
+        raise HTTPException(status_code=500, detail="Motor de Machine Learning inactivo.")
 
-
-# ============================================================
-# POST /fraud/decide
-# ============================================================
-@router.post(
-    "/decide",
-    response_model=DecideResponse,
-    summary="Decision de fraude en tiempo real",
-)
-@limiter.limit("30/minute")
-async def fraud_decide(
-    request: Request, 
-    tx_data: Transaction,
-    x_api_key: str = Header(None, alias="X-API-Key")
-):
-    
-    """
-    Endpoint principal. NovaPay lo llama ANTES de aprobar una transaccion.
-    Devuelve allow / review / block + probabilidad + nivel de riesgo.
-    """
-
-    if x_api_key != API_SECRET_KEY:
-        raise HTTPException(
-            status_code=403, 
-            detail="Acceso denegado. API Key inválida o faltante."
-        )
-    
-
-    score, risk = score_transaction(tx_data)
-    decision = decision_from_score(score)
+    try:
+        # 1. Transformamos la petición (Pydantic) a un diccionario estándar
+        tx_dict = tx.model_dump()
         
-    response = DecideResponse(
-        transaction_id=tx_data.transaction_id,
-        decision=decision,
-        fraud_probability=score,
-        risk_level=risk,
-        timestamp=datetime.now(timezone.utc),
-    )
-
-    # Si va a review, la metemos en la cola del analista
-    if decision == Decision.review:
-        add_to_queue(QueueItem(
-            transaction_id=tx_data.transaction_id,
-            amount=tx_data.amount,
-            type=tx_data.type.value,
-            ip_country=tx_data.ip_country,
-            merchant_category=tx_data.merchant_category,
-            fraud_probability=score,
-            risk_level=risk,
-            timestamp=response.timestamp,
-        ))
-
-    return response
-
-
-# ============================================================
-# GET /fraud/queue
-# ============================================================
-@router.get(
-    "/queue",
-    response_model=QueueResponse,
-    summary="Cola de casos pendientes de revision",
-)
-async def fraud_queue(
-    limit: int = Query(default=50, le=200),
-    risk_level: Optional[RiskLevel] = None,
-):
-    items = get_queue(limit=limit, risk_level=risk_level)
-    return QueueResponse(
-        total_pending=queue_size(risk_level=risk_level),
-        queue=items,
-    )
-
-
-'''
-# ============================================================
-# POST /fraud/decide/explain
-# ============================================================
-@router.post(
-    "/decide/explain",
-    response_model=ExplainResponse,
-    summary="Explicacion detallada (XAI) con counterfactual",
-)
-async def fraud_explain(req: ExplainRequest):
-    """
-    Explicabilidad bajo demanda.
-    Devuelve narrative + feature contributions + counterfactual.
-    """
-    case = find_in_queue(req.transaction_id)
-    if not case:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Transaccion {req.transaction_id} no encontrada en cola",
+        # 2. Pasamos la transacción por tus reglas heurísticas de negocio
+        scoring_result = score_transaction(tx)
+        
+        # 3. Metemos los datos en un DataFrame de 1 sola fila para que XGBoost no se queje
+        df = pd.DataFrame([tx_dict])
+        
+        # 4. Inferencia: calculamos la probabilidad matemática y la etiqueta binaria
+        fraud_prob = float(model.predict_proba(df)[0][1])
+        is_fraud = int(model.predict(df)[0])
+        
+        # 5. Decisión Final: Si la IA detecta fraude O tus reglas de negocio lo exigen, se bloquea
+        decision = "block" if (is_fraud == 1 or scoring_result.get("action") == "block") else "allow"
+        
+        # 6. Añadimos el veredicto de vuelta al diccionario para la base de datos
+        tx_dict["fraud_probability"] = fraud_prob
+        tx_dict["risk_level"] = "high" if decision == "block" else "low"
+        tx_dict["decision"] = decision
+        
+        # 7. Inyección limpia en la base de datos de producción (Full Stack)
+        save_transaction(tx_dict)
+        
+        # 8. Devolvemos la respuesta formateada al frontend
+        return DecisionResponse(
+            transaction_id="generado-en-db", # Supabase asignará el UUID real
+            decision=decision,
+            fraud_probability=fraud_prob,
+            risk_factors=scoring_result.get("flags", [])
         )
 
-    contributions = get_feature_contributions(
-        ip_country=case.ip_country,
-        merchant_category=case.merchant_category,
-        amount=case.amount,
-    )
-
-    narrative_parts = [c.narrative for c in contributions]
-    if narrative_parts:
-        narrative = (
-            f"Transaccion marcada con probabilidad {case.fraud_probability:.0%}. "
-            + " ".join(narrative_parts)
-        )
-    else:
-        narrative = (
-            f"Transaccion marcada con probabilidad {case.fraud_probability:.0%} "
-            "por anomalia en el patron."
-        )
-
-    counterfactual = build_counterfactual(
-        ip_country=case.ip_country,
-        merchant_category=case.merchant_category,
-        amount=case.amount,
-        current_score=case.fraud_probability,
-    )
-
-    return ExplainResponse(
-        transaction_id=case.transaction_id,
-        fraud_probability=case.fraud_probability,
-        narrative=narrative,
-        feature_contributions=contributions,
-        counterfactual=counterfactual,
-    )
-'''
-
-# ============================================================
-# POST /fraud/decide/preview
-# ============================================================
-@router.post(
-    "/decide/preview",
-    response_model=PreviewResponse,
-    summary="What-if: simula impacto de cambiar umbrales",
-)
-async def fraud_preview(req: PreviewRequest):
-    """
-    Permite a NovaPay simular el impacto de cambiar umbrales sin tocar produccion.
-    Devuelve impacto en EUR (fraude evitado vs. clientes legitimos bloqueados).
-    """
-    # Config actual de referencia (mock; en real se leeria de DB)
-    current = PreviewMetrics(
-        threshold_block=0.75,
-        threshold_review=0.50,
-        blocked=142,
-        reviewed=380,
-        allowed=9478,
-        fraud_caught=38,
-        false_positives=12,
-        money_saved_eur=28400.0,
-    )
-
-    threshold_delta = 0.75 - req.threshold_block
-    extra_blocked = int(threshold_delta * 1000)
-    extra_fraud_caught = int(threshold_delta * 100)
-    extra_false_positives = int(threshold_delta * 900)
-    extra_money_saved = threshold_delta * 50000
-
-    preview = PreviewMetrics(
-        threshold_block=req.threshold_block,
-        threshold_review=req.threshold_review,
-        blocked=current.blocked + extra_blocked,
-        reviewed=current.reviewed + int(threshold_delta * 500),
-        allowed=current.allowed - extra_blocked - int(threshold_delta * 500),
-        fraud_caught=current.fraud_caught + extra_fraud_caught,
-        false_positives=current.false_positives + extra_false_positives,
-        money_saved_eur=round(current.money_saved_eur + extra_money_saved, 2),
-    )
-
-    if extra_fraud_caught > 0 and extra_false_positives < extra_fraud_caught * 10:
-        recommendation = (
-            f"Cambio recomendado: capturamos {extra_fraud_caught} fraudes mas "
-            f"con coste razonable de {extra_false_positives} falsos positivos. "
-            f"Ahorro neto estimado: {extra_money_saved:.0f} EUR."
-        )
-    elif extra_fraud_caught > 0:
-        recommendation = (
-            f"Cuidado: el cambio captura {extra_fraud_caught} fraudes mas pero "
-            f"genera {extra_false_positives} falsos positivos."
-        )
-    else:
-        recommendation = "El cambio no aporta deteccion adicional significativa."
-
-    return PreviewResponse(
-        current_config=current,
-        preview_config=preview,
-        delta={
-            "extra_fraud_caught": extra_fraud_caught,
-            "extra_false_positives": extra_false_positives,
-            "extra_money_saved_eur": round(extra_money_saved, 2),
-            "recommendation": recommendation,
-        },
-    )
-
-
-# ============================================================
-# POST /fraud/challenge
-# ============================================================
-@router.post(
-    "/challenge",
-    response_model=ChallengeResponse,
-    summary="Recomendacion adaptativa de friccion",
-)
-async def fraud_challenge(req: ChallengeRequest):
-    """
-    En vez de allow/block, recomienda una friccion proporcional al riesgo
-    (SMS, biometria, revision manual...). Como hacen Revolut, Stripe, etc.
-    """
-    score = req.fraud_probability
-    ctx = req.transaction_context
-
-    if score < 0.45:
-        primary = ChallengeOption(
-            action="allow",
-            friction="none",
-            user_message="Transaccion aprobada.",
-        )
-        alternatives = []
-        reasoning = "Score bajo. Transaccion dentro de patrones normales."
-
-    elif score < 0.60:
-        primary = ChallengeOption(
-            action="sms_otp",
-            friction="low",
-            user_message="Hemos enviado un codigo a tu movil para confirmar esta operacion.",
-        )
-        alternatives = [
-            ChallengeOption(action="email_confirmation", friction="low"),
-            ChallengeOption(action="transaction_limit_24h", friction="low"),
-        ]
-        reasoning = f"Score medio ({score:.0%}). Recomendamos verificacion ligera."
-
-    elif score < 0.75:
-        primary = ChallengeOption(
-            action="biometric_auth",
-            friction="medium",
-            user_message="Por favor verifica tu identidad con huella o reconocimiento facial.",
-        )
-        alternatives = [
-            ChallengeOption(action="manual_review", friction="high"),
-            ChallengeOption(action="sms_otp", friction="low"),
-        ]
-        reasoning = (
-            f"Score medio-alto ({score:.0%}) + categoria {ctx.merchant_category}. "
-            f"Recomendamos verificacion reforzada antes de bloquear."
-        )
-
-    else:
-        primary = ChallengeOption(
-            action="manual_review",
-            friction="high",
-            user_message="Hemos pausado esta operacion. Nuestro equipo la revisara en breve.",
-        )
-        alternatives = [
-            ChallengeOption(action="block", friction="high"),
-            ChallengeOption(action="biometric_auth", friction="medium"),
-        ]
-        reasoning = f"Score alto ({score:.0%}). Riesgo elevado, recomendamos revision humana."
-
-    return ChallengeResponse(
-        transaction_id=req.transaction_id,
-        recommended_action=primary.action,
-        primary_option=primary,
-        alternative_options=alternatives,
-        reasoning=reasoning,
-    )
-
-
-# ============================================================
-# POST /fraud/feedback
-# ============================================================
-@router.post(
-    "/feedback",
-    response_model=FeedbackResponse,
-    summary="Cierra el ciclo: el analista marca el resultado real",
-)
-async def fraud_feedback(req: FeedbackRequest):
-    """
-    El analista cierra el caso. Esto se guarda para auditoria y reentrenamiento.
-    """
-    case_id = f"case_{uuid4().hex[:8]}"
-
-    store_feedback(
-        case_id=case_id,
-        transaction_id=req.transaction_id,
-        analyst_decision=req.analyst_decision,
-        analyst_notes=req.analyst_notes,
-        analyst_id=req.analyst_id,
-    )
-
-    # Quitar de la cola pendiente
-    remove_from_queue(req.transaction_id)
-
-    return FeedbackResponse(
-        status="stored",
-        case_id=case_id,
-        transaction_id=req.transaction_id,
-        decision=req.analyst_decision,
-    )
-
-
-# ============================================================
-# GET /fraud/client/{name_orig}
-# ============================================================
-@router.get(
-    "/client/{name_orig}",
-    response_model=ClientProfileResponse,
-    summary="Perfil del cliente para el modal del analista",
-)
-async def get_client_profile(
-    name_orig: str,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    """
-    Devuelve estadísticas históricas y banderas de riesgo consultando
-    directamente la base de datos de Full Stack.
-    """
-    profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
-    if profile is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Cliente '{name_orig}' no encontrado en el histórico",
-        )
-    return profile
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error en el motor de inferencia: {str(e)}")
