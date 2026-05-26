@@ -77,7 +77,7 @@ class Transaction(BaseModel):
     @classmethod
     def validate_client_id(cls, v: str) -> str:
         import re
-        if not re.match(r"^C\d{9}$", v):
+        if not re.match(r"^C\d{10}$", v):
             raise ValueError(
                 f"Identificador inválido: '{v}'. Formato esperado: C seguido de 9 dígitos (ej. C123456789)"
             )
