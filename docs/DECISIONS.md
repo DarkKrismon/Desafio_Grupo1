@@ -1,7 +1,7 @@
 # DECISIONS.md — Registro de Decisiones Técnicas
 
 Sentinel · NovaPay Fraud Detection — Vertical Data Science  
-Última actualización: Mayo 2026
+Última actualización: 26 de mayo de 2026
 
 Este documento registra las decisiones técnicas y de negocio tomadas por el equipo de Data Science durante el desarrollo del sistema de detección de fraude, junto con su justificación.
 
@@ -117,3 +117,39 @@ Este documento registra las decisiones técnicas y de negocio tomadas por el equ
 ### Rate limiting
 **Decisión:** Limitar `/fraud/decide` a 30 requests por minuto.  
 **Justificación:** Protección básica contra ataques de fuerza bruta y abuso del endpoint de decisión en tiempo real.
+
+---
+
+## 06 · Historial de versiones y discrepancias documentales
+
+Esta sección registra los cambios entre rondas del modelo y deja constancia explícita de las inconsistencias detectadas entre `DECISIONS.md` y los documentos técnicos del backend (`Documentacion_Logica_API.md`, `Documentacion_Consultas_API.md`, `Procesamiento_ML.md`). El criterio es que `DECISIONS.md` actúa como fuente de verdad de las decisiones tomadas; los docs técnicos describen el estado del código y pueden ir un paso por detrás.
+
+### Cambios R1 → R2
+
+**Decisión:** R2 introduce features de comportamiento financiero (errores de balance, ratios de vaciado, hora cíclica) y eleva el threshold de clasificación de R1 a 0.90.  
+**Justificación:** R1 detecta fraude obvio basado en señales externas; R2 se diseñó para fraude sigiloso sobre un dataset balanceado con patrones más separables, lo que permite un threshold más alto sin perder recall. El detalle de features está en la sección 02 y el detalle del threshold en la sección 03.  
+**Estado de la documentación técnica:** Los documentos `Documentacion_Logica_API.md` y `Procesamiento_ML.md` describen el pipeline de R1. R2 se activa en tiempo de arranque mediante la variable de entorno `MODEL_VERSION=r2` (ver sección 04), sin cambios en el contrato de la API. La documentación técnica de R2 queda pendiente de redactar como entrega separada.
+
+### Discrepancias documentales abiertas
+
+Las siguientes inconsistencias se detectaron entre `DECISIONS.md` y los documentos técnicos del backend. Quedan registradas aquí como pendientes hasta que el equipo de Data Science confirme la fuente de verdad de cada una.
+
+#### Threshold de clasificación de R1
+**Discrepancia:** `DECISIONS.md` (sección 03) registra el threshold de R1 en **0.65**. `Documentacion_Logica_API.md` indica que `best_threshold.joblib` se carga con valor **0.60**.  
+**Estado:** Pendiente de validar contra el artefacto `best_threshold.joblib` desplegado en producción.  
+**Responsable:** Equipo de Data Science.  
+**Acción:** Inspeccionar el valor del joblib en el entorno productivo, alinear el documento que esté desactualizado, y dejar el otro como referencia histórica si procede.
+
+#### Encoder de `ip_country` en R1
+**Discrepancia:** `DECISIONS.md` (sección 02) registra el cambio de TargetEncoder a OneHotEncoder para `ip_country` en R1. `Documentacion_Logica_API.md` describe el `ColumnTransformer` con TargetEncoder.  
+**Estado:** Pendiente de validar contra el `ColumnTransformer` serializado en `xgb_fraud_pipeline.joblib`.  
+**Responsable:** Equipo de Data Science.  
+**Acción:** Cargar el pipeline en un notebook y verificar el tipo del transformador aplicado a `ip_country`. Actualizar el documento que no refleje el estado real del artefacto.
+
+### Criterio para futuras actualizaciones
+
+Cuando se introduzca una nueva ronda o se modifique un parámetro ya registrado en este documento, la práctica es:
+
+1. Mantener la decisión original en su sección (no reescribirla en el sitio).  
+2. Añadir una entrada nueva en esta sección 06 indicando qué cambió, cuándo y por qué.  
+3. Marcar como pendiente cualquier propagación a documentos técnicos hasta que se confirme en código.
