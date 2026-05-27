@@ -256,3 +256,7 @@ class ClientStats(BaseModel):
     fraud_rate_historical:   float = Field(..., description="Ratio de fraude")
     distinct_counterparties: int = Field(..., description="Destinatarios distintos")
     most_used_type:          Optional[str] = Field(None, description="Tipo más frecuente")
+
+class ClientProfileResponse(BaseModel):
+    client_id: str = Field(..., description="ID del cliente")
+    stats: ClientStats = Field(..., description="Estadísticas de transacciones del cliente")
