@@ -60,7 +60,7 @@ async def fraud_decide(
     )
 
     # 2. Guardamos TODO en la base de datos de Supabase
-    tx_dict = tx_data.model_dump()
+    tx_dict = tx_data.model_dump(mode='json')
     tx_dict["fraud_probability"] = score
     tx_dict["risk_level"] = risk.value
     tx_dict["decision"] = decision.value
