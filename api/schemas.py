@@ -247,8 +247,12 @@ class FeedbackResponse(BaseModel):
 # CLIENT PROFILE
 # ============================================================
 class ClientStats(BaseModel):
-    total_transactions:    int = Field(..., description="Nº total de transacciones")
-    total_volume:          float = Field(..., description="Suma de importes (€)")
-    avg_amount:            float = Field(..., description="Importe medio (€)")
-    max_amount:            float = Field(..., description="Mayor importe (€)")
-    first_seen:            Optional[datetime] = Field(None, description="Prim
+    total_transactions:      int = Field(..., description="Nº total de transacciones")
+    total_volume:            float = Field(..., description="Suma de importes (€)")
+    avg_amount:              float = Field(..., description="Importe medio (€)")
+    max_amount:              float = Field(..., description="Mayor importe (€)")
+    first_seen:              Optional[datetime] = Field(None, description="Primera vez visto")
+    last_seen:               Optional[datetime] = Field(None, description="Última vez visto")
+    fraud_rate_historical:   float = Field(..., description="Ratio de fraude")
+    distinct_counterparties: int = Field(..., description="Destinatarios distintos")
+    most_used_type:          Optional[str] = Field(None, description="Tipo más frecuente")
