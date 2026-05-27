@@ -78,8 +78,15 @@ async def fraud_decide(
 async def fraud_queue(
     limit: int = Query(default=50, le=200),
     risk_level: Optional[RiskLevel] = None,
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Requerimos API Key para proteger la cola de casos pendientes
 ):
-    # Ahora lee transacciones reales de Supabase que tengan status='pending'
+    # Verificamos que la API Key sea válida antes de mostrar la cola de revisión
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+    
     total_pending, items = get_pending_queue(limit=limit, risk_level=risk_level)
     return QueueResponse(
         total_pending=total_pending,
@@ -148,13 +155,22 @@ async def fraud_challenge(req: ChallengeRequest):
 # POST /fraud/feedback
 # ============================================================
 @router.post("/feedback", response_model=FeedbackResponse, summary="Cierre del caso por analista")
-async def fraud_feedback(req: FeedbackRequest):
+async def fraud_feedback(
+    req: FeedbackRequest,
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Requerimos API Key para proteger el cierre de casos
+):
     """
     Cuando el analista aprueba o bloquea en el panel web, actualizamos la base de datos real.
     """
+    # Verificamos que la API Key sea válida antes de procesar el feedback
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+
     case_id = f"case_{uuid4().hex[:8]}"
     
-    # Esta función actualizará el status a 'reviewed' en Supabase
     resolve_case(req.transaction_id, req.analyst_decision, req.analyst_id)
 
     return FeedbackResponse(
@@ -167,17 +183,34 @@ async def fraud_feedback(req: FeedbackRequest):
 # ============================================================
 # GET /fraud/client/{name_orig}
 # ============================================================
-@router.get("/client/{name_orig}", response_model=ClientProfileResponse, summary="Perfil del cliente")
+@router.get(
+    "/client/{name_orig}",
+    response_model=ClientProfileResponse,
+    summary="Perfil del cliente para el modal del analista",
+)
 async def get_client_profile(
     name_orig: str,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    x_api_key: str = Header(None, alias="X-API-Key"),  # Validación de API Key
 ):
+    """
+    Devuelve estadísticas históricas y banderas de riesgo consultando
+    directamente la base de datos de Full Stack.
+    """
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. API Key inválida o faltante."
+        )
+    
     profile = build_client_profile(name_orig, recent_limit=limit, recent_offset=offset)
     if profile is None:
-        raise HTTPException(status_code=404, detail=f"Cliente '{name_orig}' no encontrado")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cliente '{name_orig}' no encontrado en el histórico",
+        )
     return profile
-
 
 # ============================================================
 # POST /fraud/explain
