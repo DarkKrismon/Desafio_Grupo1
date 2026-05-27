@@ -16,6 +16,31 @@ def save_transaction(tx_data: dict):
         conn = get_connection()
         cur = conn.cursor()
         
+        # ==========================================
+        # 1. UPSERT: Crear clientes si no existen
+        # ==========================================
+        now_utc = datetime.now(timezone.utc)
+        
+        # Insertar cliente ORIGEN (ignorando si ya existe)
+        client_orig = str(tx_data.get("nameOrig", "UNKNOWN"))
+        cur.execute("""
+            INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile)
+            VALUES (%s, 0, 0.0, 0, %s, 'low')
+            ON CONFLICT (client_id) DO NOTHING;
+        """, (client_orig, now_utc))
+
+        # Insertar cliente DESTINO (solo si es un cliente 'C' y no un mercader 'M')
+        client_dest = str(tx_data.get("nameDest", "UNKNOWN"))
+        if client_dest.startswith("C"):
+            cur.execute("""
+                INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile)
+                VALUES (%s, 0, 0.0, 0, %s, 'low')
+                ON CONFLICT (client_id) DO NOTHING;
+            """, (client_dest, now_utc))
+
+        # ==========================================
+        # 2. Inserción normal de la transacción
+        # ==========================================
         query = """
             INSERT INTO "Transactions" (
                 "transaction_id", "amount", "type", "nameOrig", "nameDest",
@@ -25,14 +50,12 @@ def save_transaction(tx_data: dict):
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
-        now_utc = datetime.now(timezone.utc)
-        
         valores = (
             str(tx_data.get("transaction_id", str(uuid.uuid4()))),
             float(tx_data.get("amount", 0.0)),
             str(tx_data.get("type", "UNKNOWN")),
-            str(tx_data.get("nameOrig", "UNKNOWN")),
-            str(tx_data.get("nameDest", "UNKNOWN")),
+            client_orig,
+            client_dest,
             float(tx_data.get("oldbalanceOrg", 0.0)),
             float(tx_data.get("newbalanceOrig", 0.0)),
             float(tx_data.get("oldbalanceDest", 0.0)),
@@ -42,11 +65,11 @@ def save_transaction(tx_data: dict):
             float(tx_data.get("fraud_probability", 0.0)),
             str(tx_data.get("risk_level", "low")),
             str(tx_data.get("decision", "allow")),
-            "pending",  # El estado que ya sabemos que Full Stack acepta
+            "pending",
             now_utc,
             now_utc,
             now_utc,
-            1 
+            int(tx_data.get("step", 1))
         )
         
         cur.execute(query, valores)
