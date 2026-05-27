@@ -88,7 +88,7 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
 
     # Cap: el bonus nunca puede mover el score más de 0.45
     # Las bonus rules elevan casos borderline hasta review; la decisión final sigue siendo del modelo
-    bonus = min(bonus, 0.45)
+    bonus = min(bonus, 0.75)
 
     score_final = min(score_ml + bonus, 1.0)
     return round(score_final, 4)
@@ -191,9 +191,9 @@ def apply_client_history_bonus(fraud_rate: float, total_transactions: int) -> fl
 # DECISION
 # ============================================================
 def decision_from_score(score: float) -> Decision:
-    if score >= 0.75:
+    if score >= 0.80:
         return Decision.block
-    elif score >= 0.45:
+    elif score >= 0.30:
         return Decision.review
     else:
         return Decision.allow
