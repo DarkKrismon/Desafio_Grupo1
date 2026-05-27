@@ -49,6 +49,31 @@ async def fraud_decide(
 
     # 1. Tu lógica original de negocio y Machine Learning
     score, risk = score_transaction(tx_data)
+
+    # Bonus por historial del cliente
+    try:
+        profile = build_client_profile(tx_data.nameOrig, recent_limit=5)
+        if profile:
+            from src.scoring import apply_client_history_bonus
+            history_bonus = apply_client_history_bonus(
+                fraud_rate=profile["stats"]["fraud_rate_historical"],
+                total_transactions=profile["stats"]["total_transactions"]
+            )
+            score = min(score + history_bonus, 1.0)
+            score = round(score, 4)
+
+            # Cliente nuevo con señal de riesgo → directo a review
+            total_tx = profile["stats"]["total_transactions"]
+            if total_tx == 0 and score > 0:
+                score = max(score, 0.45)
+        else:
+            # Cliente no existe en Supabase → es nuevo
+            # Si tiene algún bonus activo, mandarlo a review
+            if score > 0:
+                score = max(score, 0.45)
+    except Exception as e:
+        print(f"⚠️ Error historial cliente: {e}")
+
     decision = decision_from_score(score)
         
     response = DecideResponse(

@@ -31,53 +31,52 @@ except Exception as e:
 # ============================================================
 def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     bonus = 0.0
- 
+
     high_risk_countries  = ['KH', 'CN', 'NG', 'CI', 'VE']
     high_risk_categories = ['crypto', 'electronics']
     drain_types          = ['CASH_OUT', 'TRANSFER', 'DEBIT']
- 
+
     # País de alto riesgo
     if tx.ip_country in high_risk_countries:
-        bonus += 0.05
- 
+        bonus += 0.10
+
     # Categoría de alto riesgo
     if tx.merchant_category in high_risk_categories:
-        bonus += 0.05
- 
+        bonus += 0.10
+
     # Importe elevado (> percentil 95 del dataset)
     if tx.amount > 8000:
-        bonus += 0.05
- 
+        bonus += 0.10
+
     # Error contable en balance origen
     balance_error_orig = abs((tx.oldbalanceOrg - tx.amount) - tx.newbalanceOrig)
     if balance_error_orig > 0.01:
-        bonus += 0.08
- 
+        bonus += 0.12
+
     # Error contable en balance destino
     balance_error_dest = abs((tx.oldbalanceDest + tx.amount) - tx.newbalanceDest)
     if balance_error_dest > 0.01:
-        bonus += 0.08
- 
+        bonus += 0.12
+
     # Cuenta origen con saldo cero antes Y después en operaciones que deberían drenar
     # (indica cuenta fantasma usada como relay, no vaciado real)
     if tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0 and tx.type.value in drain_types:
-        bonus += 0.06
- 
+        bonus += 0.15
+
     # Combinación país + categoría de alto riesgo
     if tx.ip_country in high_risk_countries and tx.merchant_category in high_risk_categories:
-        bonus += 0.05
+        bonus += 0.10
 
     # Ratio de drenaje con señal de riesgo activa
     has_risk_signal = (tx.ip_country in high_risk_countries or tx.merchant_category in high_risk_categories)
     drain_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     if drain_ratio > 0.15 and has_risk_signal:
-        bonus += 0.12
- 
+        bonus += 0.15
+
     # Vaciado total de cuenta: aplica a cualquier tipo de drenaje
-    # Corrige el bug anterior que ignoraba TRANSFER y DEBIT
     if tx.oldbalanceOrg > 0 and tx.newbalanceOrig == 0 and tx.type.value in drain_types:
-        bonus += 0.10
- 
+        bonus += 0.25
+
     # Discrepancia entre amount y cambio real de balance origen
     # Solo aplica a operaciones de salida para evitar falsos positivos en CASH_IN
     if tx.type.value in drain_types:
@@ -85,12 +84,12 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
         actual_change_orig   = abs(tx.oldbalanceOrg - tx.newbalanceOrig)
         discrepancy_ratio    = abs(expected_change_orig - actual_change_orig) / (tx.amount + 1)
         if discrepancy_ratio > 0.5:
-            bonus += 0.20
- 
-    # Cap: el bonus nunca puede mover el score más de 0.40
-    # Las bonus rules elevan casos borderline; la decisión final sigue siendo del modelo
-    bonus = min(bonus, 0.40)
- 
+            bonus += 0.25
+
+    # Cap: el bonus nunca puede mover el score más de 0.45
+    # Las bonus rules elevan casos borderline hasta review; la decisión final sigue siendo del modelo
+    bonus = min(bonus, 0.75)
+
     score_final = min(score_ml + bonus, 1.0)
     return round(score_final, 4)
  
@@ -170,14 +169,31 @@ def score_transaction(tx: Transaction) -> tuple[float, RiskLevel]:
  
     return score_final, risk
  
- 
+def apply_client_history_bonus(fraud_rate: float, total_transactions: int) -> float:
+    """Bonus basado en historial del cliente consultado de Supabase."""
+    bonus = 0.0
+
+    # Cliente con historial de fraude previo
+    if fraud_rate > 0.5:
+        bonus += 0.25
+    elif fraud_rate > 0.2:
+        bonus += 0.15
+    elif fraud_rate > 0.0:
+        bonus += 0.08
+
+    # Cliente nuevo (pocos registros = menos confianza)
+    if total_transactions <= 3:
+        bonus += 0.05
+
+    return bonus
+
 # ============================================================
 # DECISION
 # ============================================================
 def decision_from_score(score: float) -> Decision:
-    if score >= 0.75:
+    if score >= 0.80:
         return Decision.block
-    elif score >= 0.45:
+    elif score >= 0.30:
         return Decision.review
     else:
         return Decision.allow
