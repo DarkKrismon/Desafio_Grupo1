@@ -126,6 +126,18 @@ class Transaction(BaseModel):
         if "nameOrig" in info.data and v == info.data["nameOrig"]:
             raise ValueError("nameOrig y nameDest no pueden ser el mismo cliente")
         return v
+    
+    @field_validator("transaction_id", "merchant_category", "ip_country")
+    @classmethod
+    def sanitize_strings(cls, v: str) -> str:
+        if v is None:
+            return v
+        import re
+        # Eliminamos caracteres que pueden ser usados en ataques XSS
+        clean = re.sub(r"[<>\"'%;()&+]", "", v)
+        if clean != v:
+            raise ValueError("El campo contiene caracteres no permitidos")
+        return clean
 
 
 class FeedbackRequest(BaseModel):
