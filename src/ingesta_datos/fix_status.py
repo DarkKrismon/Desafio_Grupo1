@@ -32,7 +32,7 @@ def fix_transaction_status():
 
         print(f"✅ {updated} transacciones actualizadas correctamente.")
 
-    except Exception as e:
+    except Exception as e:  
         print(f"❌ Error: {e}")
 
 if __name__ == "__main__":

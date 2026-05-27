@@ -14,6 +14,28 @@ import re
 
 from pydantic import BaseModel, field_validator, Field, ConfigDict
 
+VALID_COUNTRIES = {
+    "AD","AE","AF","AG","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD",
+    "BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ",
+    "CA","CD","CF","CG","CH","CI","CL","CM","CN","CO","CR","CU","CV","CY",
+    "CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ER","ES","ET","FI",
+    "FJ","FK","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT",
+    "GW","GY","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IR","IS","IT",
+    "JM","JO","JP","KE","KG","KH","KI","KM","KN","KP","KR","KW","KZ","LA",
+    "LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME",
+    "MG","MH","MK","ML","MM","MN","MR","MT","MU","MV","MW","MX","MY","MZ",
+    "NA","NE","NG","NI","NL","NO","NP","NR","NZ","OM","PA","PE","PG","PH",
+    "PK","PL","PT","PW","PY","QA","RO","RS","RU","RW","SA","SB","SC","SD",
+    "SE","SG","SI","SK","SL","SM","SN","SO","SR","SS","ST","SV","SY","SZ",
+    "TD","TG","TH","TJ","TL","TM","TN","TO","TR","TT","TV","TZ","UA","UG",
+    "US","UY","UZ","VA","VC","VE","VN","VU","WS","YE","ZA","ZM","ZW","UNKNOWN"
+}
+
+VALID_CATEGORIES = {
+    "crypto", "electronics", "restaurant", "pharmacy", "grocery",
+    "transport", "fuel", "financial", "unknown"
+}
+
 
 TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
 
@@ -60,28 +82,6 @@ class Transaction(BaseModel):
     ip_country:        str | None = Field(default="unknown", max_length=10)
     hour_of_the_day:   int | None = Field(default=None, ge=0, le=23, description="Hora del día (0-23)")
 
-    VALID_COUNTRIES = {
-        "AD","AE","AF","AG","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD",
-        "BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ",
-        "CA","CD","CF","CG","CH","CI","CL","CM","CN","CO","CR","CU","CV","CY",
-        "CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ER","ES","ET","FI",
-        "FJ","FK","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT",
-        "GW","GY","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IR","IS","IT",
-        "JM","JO","JP","KE","KG","KH","KI","KM","KN","KP","KR","KW","KZ","LA",
-        "LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME",
-        "MG","MH","MK","ML","MM","MN","MR","MT","MU","MV","MW","MX","MY","MZ",
-        "NA","NE","NG","NI","NL","NO","NP","NR","NZ","OM","PA","PE","PG","PH",
-        "PK","PL","PT","PW","PY","QA","RO","RS","RU","RW","SA","SB","SC","SD",
-        "SE","SG","SI","SK","SL","SM","SN","SO","SR","SS","ST","SV","SY","SZ",
-        "TD","TG","TH","TJ","TL","TM","TN","TO","TR","TT","TV","TZ","UA","UG",
-        "US","UY","UZ","VA","VC","VE","VN","VU","WS","YE","ZA","ZM","ZW","UNKNOWN"
-    }
-
-    VALID_CATEGORIES = {
-        "crypto", "electronics", "restaurant", "pharmacy", "grocery",
-        "transport", "fuel", "financial", "unknown"
-    }
-
     @field_validator("nameOrig", "nameDest")
     @classmethod
     def validate_client_id(cls, v: str) -> str:
@@ -102,7 +102,7 @@ class Transaction(BaseModel):
         if v is None:
             return "unknown"
         v_upper = v.upper()
-        if v_upper not in cls.VALID_COUNTRIES:
+        if v_upper not in VALID_COUNTRIES:
             raise ValueError(
                 f"País inválido: '{v}'. Debe ser un código ISO 3166-1 alpha-2 (ej. ES, US, NG)"
             )
@@ -114,9 +114,9 @@ class Transaction(BaseModel):
         if v is None:
             return "unknown"
         v_lower = v.lower()
-        if v_lower not in cls.VALID_CATEGORIES:
+        if v_lower not in VALID_CATEGORIES:
             raise ValueError(
-                f"Categoría inválida: '{v}'. Categorías válidas: {', '.join(sorted(cls.VALID_CATEGORIES))}"
+                f"Categoría inválida: '{v}'. Categorías válidas: {', '.join(sorted(VALID_CATEGORIES))}"
             )
         return v_lower
 
