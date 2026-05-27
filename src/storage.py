@@ -24,19 +24,19 @@ def save_transaction(tx_data: dict):
         # Insertar cliente ORIGEN (ignorando si ya existe)
         client_orig = str(tx_data.get("nameOrig", "UNKNOWN"))
         cur.execute("""
-            INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile)
-            VALUES (%s, 0, 0.0, 0, %s, 'low')
+            INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile, "createdAt", "updatedAt")
+            VALUES (%s, 0, 0.0, 0, %s, 'low', %s, %s)
             ON CONFLICT (client_id) DO NOTHING;
-        """, (client_orig, now_utc))
+        """, (client_orig, now_utc, now_utc, now_utc))
 
         # Insertar cliente DESTINO (solo si es un cliente 'C' y no un mercader 'M')
         client_dest = str(tx_data.get("nameDest", "UNKNOWN"))
         if client_dest.startswith("C"):
             cur.execute("""
-                INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile)
-                VALUES (%s, 0, 0.0, 0, %s, 'low')
+                INSERT INTO "ClientProfiles" (client_id, total_transactions, total_amount, fraud_flags, last_seen, risk_profile, "createdAt", "updatedAt")
+                VALUES (%s, 0, 0.0, 0, %s, 'low', %s, %s)
                 ON CONFLICT (client_id) DO NOTHING;
-            """, (client_dest, now_utc))
+            """, (client_dest, now_utc, now_utc, now_utc))
 
         # ==========================================
         # 2. Inserción normal de la transacción
