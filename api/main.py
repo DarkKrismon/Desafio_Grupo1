@@ -18,57 +18,43 @@ Docs interactivas:
 
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from api.routes import fraud, meta, stats
-
-from fastapi import FastAPI, Request
 from slowapi import _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
 from api.limiter import limiter
 
-app = FastAPI(title="NovaPay Fraud Shield API")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
-
-# ============================================================
-# APP
-# ============================================================
 app = FastAPI(
     title="Sentinel API",
     description="Fraud DNA detection for adaptive threats - NovaPay",
     version="0.1.0",
+    docs_url=None,      # Deshabilitamos el acceso público a la documentación Swagger
+    redoc_url=None,     # Deshabilitamos el acceso público a la documentación ReDoc
 )
 
+# Ahora configura TODO sobre esta única app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
-# ============================================================
-# MIDDLEWARE
-# ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],     # en produccion: lista de dominios de NovaPay
-    allow_methods=["*"],
+    allow_origins=["http://localhost:3000"],  # Restringimos el acceso solo al frontend autorizado
+    allow_methods=["GET", "POST", "PATCH"],   # Permitimos únicamente los métodos HTTP necesarios
     allow_headers=["*"],
 )
 
-
-# ============================================================
-# ROUTERS
-# ============================================================
 app.include_router(meta.router)
 app.include_router(fraud.router)
 app.include_router(stats.router)
 
-
-# ============================================================
-# ROOT
-# ============================================================
 @app.get("/", include_in_schema=False)
 async def root():
-    return {
-        "service": "Sentinel API",
-        "version": app.version,
-        "docs": "/docs",
-    }
+    return {"service": "Sentinel API", "version": app.version, "docs": "/docs"}
+
+@app.exception_handler(404)
+async def not_found(request, exc):
+    # Ocultamos información de la arquitectura interna ante rutas inexistentes
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
