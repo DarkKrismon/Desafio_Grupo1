@@ -36,9 +36,6 @@ VALID_CATEGORIES = {
     "transport", "fuel", "financial", "unknown"
 }
 
-
-TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
-
 # ============================================================
 # ENUMS
 # ============================================================
