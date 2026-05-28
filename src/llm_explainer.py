@@ -36,7 +36,7 @@ def analyze_fraud_with_llm(tx_data: dict) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            model="llama3-8b-8192", 
+            model="llama-3.1-8b-instant", 
             temperature=0.2, 
             max_tokens=150
         )
