@@ -140,9 +140,14 @@ async def fraud_queue(
 async def fraud_preview(req: PreviewRequest):
     # (Funcionalidad original mantenida intacta)
     current = PreviewMetrics(
-        threshold_block=0.80, threshold_review=0.30, blocked=142, reviewed=380, allowed=9478,
-        fraud_caught=38, false_positives=12, money_saved_eur=28400.0,
-    )
+    threshold_block=0.80, threshold_review=0.30,
+    blocked=142,
+    reviewed=380,
+    allowed=9478,
+    fraud_caught=8,
+    false_positives=26,
+    money_saved_eur=28400.0,
+)
 
     threshold_delta = 0.80 - req.threshold_block
     extra_blocked = int(threshold_delta * 1000)
