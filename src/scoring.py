@@ -27,56 +27,82 @@ except Exception as e:
  
  
 # ============================================================
+# UMBRALES DE IMPORTE POR CATEGORÍA
+# Contexto: clientes individuales, no empresas.
+# Una persona física raramente supera estos importes en estas categorías.
+# ============================================================
+CATEGORY_AMOUNT_THRESHOLDS = {
+    "restaurant": 50_000.0,   # restaurantes de lujo con botellas incluidas
+    "pharmacy":    2_000.0,   # medicación individual
+    "grocery":     3_000.0,   # compra personal de supermercado
+    "fuel":        2_500.0,   # repostaje individual
+    "transport":  35_000.0,   # billete de primera clase de aerolínea de lujo
+    # electronics y crypto no tienen umbral aquí:
+    # ya tienen bonus por ser categorías de alto riesgo
+}
+ 
+ 
+# ============================================================
 # BONUS RULES
 # ============================================================
 def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
     bonus = 0.0
-
+ 
     high_risk_countries  = ['KH', 'CN', 'NG', 'CI', 'VE']
     high_risk_categories = ['crypto', 'electronics']
     drain_types          = ['CASH_OUT', 'TRANSFER', 'DEBIT']
-
+ 
     # País de alto riesgo
     if tx.ip_country in high_risk_countries:
         bonus += 0.10
-
+ 
     # Categoría de alto riesgo
     if tx.merchant_category in high_risk_categories:
         bonus += 0.10
-
+ 
     # Importe elevado (> percentil 95 del dataset)
-    if tx.amount > 8000:
+    if tx.amount > 8_000:
         bonus += 0.10
-
+ 
+    # Importe muy elevado (independiente de país y categoría)
+    if tx.amount > 50_000:
+        bonus += 0.25
+ 
+    # Importe anómalo para la categoría del comercio
+    # Una persona física raramente supera estos umbrales en estas categorías
+    category_threshold = CATEGORY_AMOUNT_THRESHOLDS.get(tx.merchant_category)
+    if category_threshold and tx.amount > category_threshold:
+        bonus += 0.20
+ 
     # Error contable en balance origen
     balance_error_orig = abs((tx.oldbalanceOrg - tx.amount) - tx.newbalanceOrig)
     if balance_error_orig > 0.01:
         bonus += 0.12
-
+ 
     # Error contable en balance destino
     balance_error_dest = abs((tx.oldbalanceDest + tx.amount) - tx.newbalanceDest)
     if balance_error_dest > 0.01:
         bonus += 0.12
-
+ 
     # Cuenta origen con saldo cero antes Y después en operaciones que deberían drenar
     # (indica cuenta fantasma usada como relay, no vaciado real)
     if tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0 and tx.type.value in drain_types:
         bonus += 0.15
-
+ 
     # Combinación país + categoría de alto riesgo
     if tx.ip_country in high_risk_countries and tx.merchant_category in high_risk_categories:
         bonus += 0.10
-
+ 
     # Ratio de drenaje con señal de riesgo activa
     has_risk_signal = (tx.ip_country in high_risk_countries or tx.merchant_category in high_risk_categories)
     drain_ratio = tx.amount / (tx.oldbalanceOrg + 1)
     if drain_ratio > 0.15 and has_risk_signal:
         bonus += 0.15
-
+ 
     # Vaciado total de cuenta: aplica a cualquier tipo de drenaje
     if tx.oldbalanceOrg > 0 and tx.newbalanceOrig == 0 and tx.type.value in drain_types:
         bonus += 0.25
-
+ 
     # Discrepancia entre amount y cambio real de balance origen
     # Solo aplica a operaciones de salida para evitar falsos positivos en CASH_IN
     if tx.type.value in drain_types:
@@ -85,11 +111,10 @@ def apply_bonus_rules(tx: Transaction, score_ml: float) -> float:
         discrepancy_ratio    = abs(expected_change_orig - actual_change_orig) / (tx.amount + 1)
         if discrepancy_ratio > 0.5:
             bonus += 0.25
-
-    # Cap: el bonus nunca puede mover el score más de 0.45
-    # Las bonus rules elevan casos borderline hasta review; la decisión final sigue siendo del modelo
+ 
+    # Cap: el bonus nunca puede mover el score más de 0.75
     bonus = min(bonus, 0.75)
-
+ 
     score_final = min(score_ml + bonus, 1.0)
     return round(score_final, 4)
  
@@ -122,7 +147,6 @@ def build_features_r2(tx: Transaction) -> pd.DataFrame:
     both_orig_zero       = 1 if (tx.oldbalanceOrg == 0 and tx.newbalanceOrig == 0) else 0
     both_balances_zero   = 1 if (tx.oldbalanceOrg == 0 and tx.oldbalanceDest == 0) else 0
  
-    # Hora cíclica: sin step disponible usamos 0 como neutro
     hour     = tx.step % 24
     hour_sin = float(np.sin(2 * np.pi * hour / 24))
     hour_cos = float(np.cos(2 * np.pi * hour / 24))
@@ -157,36 +181,38 @@ def score_transaction(tx: Transaction) -> tuple[float, RiskLevel]:
     else:
         df_tx = build_features_r1(tx)
  
-    score_ml    = float(pipeline.predict_proba(df_tx)[0][1])
+    score_ml = float(pipeline.predict_proba(df_tx)[0][1])
+    print(f"🔍 [{tx.transaction_id}] Score ML puro: {score_ml:.4f}")      # ← AÑADE
     score_final = apply_bonus_rules(tx, score_ml)
+    print(f"🔍 [{tx.transaction_id}] Score final (con bonus): {score_final:.4f}")  # ← AÑADE
  
-    if score_final >= 0.75:
+    if score_final >= 0.80:
         risk = RiskLevel.high
-    elif score_final >= 0.45:
+    elif score_final >= 0.30:
         risk = RiskLevel.medium
     else:
         risk = RiskLevel.low
  
     return score_final, risk
  
+ 
 def apply_client_history_bonus(fraud_rate: float, total_transactions: int) -> float:
     """Bonus basado en historial del cliente consultado de Supabase."""
     bonus = 0.0
-
-    # Cliente con historial de fraude previo
+ 
     if fraud_rate > 0.5:
         bonus += 0.25
     elif fraud_rate > 0.2:
         bonus += 0.15
     elif fraud_rate > 0.0:
         bonus += 0.08
-
-    # Cliente nuevo (pocos registros = menos confianza)
+ 
     if total_transactions <= 3:
         bonus += 0.05
-
+ 
     return bonus
-
+ 
+ 
 # ============================================================
 # DECISION
 # ============================================================

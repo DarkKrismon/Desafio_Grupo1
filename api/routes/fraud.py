@@ -47,7 +47,27 @@ async def fraud_decide(
     if x_api_key != API_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Acceso denegado. API Key inválida o faltante.")
 
-    # 1. Tu lógica original de negocio y Machine Learning
+    # ── DEMO OVERRIDE (debe ir primero) ─────────────────────────────────────
+    if tx_data.transaction_id == "TXN-DEMO-REVIEW":
+        score    = 0.58
+        risk     = RiskLevel.medium
+        decision = Decision.review
+        response = DecideResponse(
+            transaction_id=tx_data.transaction_id,
+            decision=decision,
+            fraud_probability=score,
+            risk_level=risk,
+            timestamp=datetime.now(timezone.utc),
+        )
+        tx_dict = tx_data.model_dump(mode='json')
+        tx_dict["type"] = tx_data.type.value
+        tx_dict["fraud_probability"] = score
+        tx_dict["risk_level"] = risk.value
+        tx_dict["decision"] = decision.value
+        save_transaction(tx_dict)
+        return response
+
+    # 1. Scoring ML
     score, risk = score_transaction(tx_data)
 
     # Bonus por historial del cliente
@@ -62,20 +82,17 @@ async def fraud_decide(
             score = min(score + history_bonus, 1.0)
             score = round(score, 4)
 
-            # Cliente nuevo con señal de riesgo → directo a review
             total_tx = profile["stats"]["total_transactions"]
             if total_tx == 0 and score > 0:
                 score = max(score, 0.45)
         else:
-            # Cliente no existe en Supabase → es nuevo
-            # Si tiene algún bonus activo, mandarlo a review
             if score > 0:
                 score = max(score, 0.45)
     except Exception as e:
         print(f"⚠️ Error historial cliente: {e}")
 
     decision = decision_from_score(score)
-        
+
     response = DecideResponse(
         transaction_id=tx_data.transaction_id,
         decision=decision,
@@ -84,18 +101,12 @@ async def fraud_decide(
         timestamp=datetime.now(timezone.utc),
     )
 
-    # 2. Guardamos TODO en la base de datos de Supabase
+    # 2. Guardamos en Supabase
     tx_dict = tx_data.model_dump(mode='json')
     tx_dict["type"] = tx_data.type.value
     tx_dict["fraud_probability"] = score
     tx_dict["risk_level"] = risk.value
     tx_dict["decision"] = decision.value
-    
-    if tx_data.transaction_id == "TXN-DEMO-REVIEW":
-        score = 0.58
-        risk = RiskLevel.medium
-        decision = Decision.review
-
     save_transaction(tx_dict)
 
     return response
