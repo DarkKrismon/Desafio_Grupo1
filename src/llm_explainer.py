@@ -18,7 +18,7 @@ def analyze_fraud_with_llm(tx_data: dict) -> str:
 
     system_prompt = (
         "Eres un auditor senior experto en fraude financiero bancario. "
-        "Tu objetivo es explicar por qué el modelo predictivo ha calificado esta transacción con ese nivel de riesgo. "
+        "Tu objetivo es explicar por qué el modelo predictivo ha calificado esta transacción con ese nivel de riesgo (bajo, medio, alto). "
         "Analiza las discrepancias matemáticas en los balances (ej: vaciados de cuenta, cuenta origen a cero que no cuadra con el importe), "
         "el país de la IP y la categoría del comercio. "
         "REGLAS ESTRICTAS: "
@@ -59,7 +59,7 @@ if __name__ == "__main__":
         "newbalanceOrig": 0.0,
         "oldbalanceDest": 0.0,
         "newbalanceDest": 0.0,
-        "ip_country": "KH", # Camboya (Alto riesgo)
+        "ip_country": "KH",
         "merchant_category": "crypto",
         "fraud_probability": 0.94,
         "risk_level": "high"
