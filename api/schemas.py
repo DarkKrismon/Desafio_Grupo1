@@ -36,6 +36,8 @@ VALID_CATEGORIES = {
     "transport", "fuel", "financial", "unknown"
 }
 
+TransactionType = Literal["CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER"]
+
 # ============================================================
 # ENUMS
 # ============================================================
@@ -135,6 +137,7 @@ class Transaction(BaseModel):
         if clean != v:
             raise ValueError("El campo contiene caracteres no permitidos")
         return clean
+
 
 
 class FeedbackRequest(BaseModel):
