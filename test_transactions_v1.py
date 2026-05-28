@@ -11,8 +11,10 @@ Uso:
 
 import requests
 import json
+import time
 
-API_URL  = "http://127.0.0.1:8001/fraud/decide"
+# 1. ACTUALIZAR A LA IP DE AWS Y PUERTO CORRECTO
+API_URL  = "http://34.229.150.136:8000/fraud/decide"
 API_KEY  = "centinela-secreto-123"
 HEADERS  = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
@@ -355,8 +357,8 @@ def run_tests():
 
     for tx in transactions:
         try:
-            response = requests.post(API_URL, headers=HEADERS, json=tx, timeout=10)
-
+            response = requests.post(API_URL, json=tx, headers=HEADERS)
+            
             if response.status_code == 200:
                 data = response.json()
                 score    = data["fraud_probability"]
@@ -374,22 +376,25 @@ def run_tests():
                 print(f"{emoji} {tx['transaction_id']:<28} score={score:.4f}  decision={decision:<8}  risk={risk}")
                 results.append({"id": tx["transaction_id"], "score": score, "decision": decision})
             else:
-                print(f"❌ {tx['transaction_id']} → HTTP {response.status_code}: {response.text[:100]}")
+                print(f"❌ {tx['transaction_id']:<28} → HTTP {response.status_code}: {response.text}")
 
         except requests.exceptions.ConnectionError:
-            print(f"⚠️  No se puede conectar a {API_URL}. ¿Está levantada la API?")
+            print(f"⚠️  No se puede conectar a {API_URL}. ¿Está levantada la API en AWS?")
             break
         except Exception as e:
-            print(f"❌ {tx['transaction_id']} → Error: {e}")
+            print(f"❌ {tx['transaction_id']:<28} → Error: {e}")
+            
+        # 2. ENGAÑAR AL RATE LIMITER (Pausa de 2.1 segundos)
+        # Como el límite es 30/minuto (1 cada 2 segundos), le damos un margen de seguridad.
+        time.sleep(2.1)
 
     print(f"\n{'='*65}")
-    print(f"  Resumen: {len(results)} transacciones procesadas")
+    print(f"  Resumen: {len(results)} transacciones procesadas correctamente")
     blocked = sum(1 for r in results if r["decision"] == "block")
     reviewed = sum(1 for r in results if r["decision"] == "review")
     allowed = sum(1 for r in results if r["decision"] == "allow")
     print(f"  🔴 Bloqueadas: {blocked} | 🟡 Revisión: {reviewed} | 🟢 Permitidas: {allowed}")
     print(f"{'='*65}\n")
-
 
 if __name__ == "__main__":
     run_tests()

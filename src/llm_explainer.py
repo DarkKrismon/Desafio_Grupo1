@@ -36,13 +36,18 @@ def analyze_fraud_with_llm(tx_data: dict) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            model="llama-3.3-70b-versatile", 
+            model="llama3-8b-8192", 
             temperature=0.2, 
             max_tokens=150
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
-        print(f"❌ Error en la API de Groq: {e}")
+        error_msg = str(e)
+        print(f"❌ Error CRÍTICO en la API de Groq: {error_msg}")
+        
+        if "429" in error_msg or "rate limit" in error_msg.lower():
+            return "El motor de IA está saturado por demasiadas peticiones. Espera un minuto."
+        
         return "No se pudo generar la explicación debido a un error de conexión con el motor de IA."
     
 
