@@ -1,6 +1,7 @@
 import os
 import uuid
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -8,10 +9,18 @@ from dotenv import load_dotenv
 load_dotenv()
 DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 
+connection_pool = pool.SimpleConnectionPool(1, 10, DATABASE_URL)
+
 def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+    return connection_pool.getconn()
+
+def release_connection(conn):
+    connection_pool.putconn(conn)
 
 def save_transaction(tx_data: dict):
+    # Inicializamos conn a None para que el bloque finally pueda comprobar
+    # si la conexión llegó a abrirse antes de intentar liberarla
+    conn = None
     try:
         conn = get_connection()
         cur = conn.cursor()
@@ -75,29 +84,42 @@ def save_transaction(tx_data: dict):
         cur.execute(query, valores)
         conn.commit()
         cur.close()
-        conn.close()
     except Exception as e:
         print(f"❌ Error crítico de base de datos en save_transaction: {e}")
+    finally:
+        # Devolvemos la conexión al pool en lugar de destruirla
+        # Esto evita crear una conexión nueva en cada llamada y mejora el rendimiento
+        if conn:
+            release_connection(conn)
 
 def get_transactions():
     # Solo como fallback. Limitado a 50 para no colapsar la memoria.
+    # Inicializamos conn a None para que el bloque finally pueda comprobar
+    # si la conexión llegó a abrirse antes de intentar liberarla
+    conn = None
     try:
         conn = get_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute('SELECT * FROM "Transactions" ORDER BY "timestamp" DESC LIMIT 50;')
         rows = cur.fetchall()
         cur.close()
-        conn.close()
         return [dict(row) for row in rows]
     except Exception as e:
         print(f"❌ Error de base de datos en get_transactions: {e}")
         return []
-    
+    finally:
+        # Devolvemos la conexión al pool en lugar de destruirla
+        # Esto evita crear una conexión nueva en cada llamada y mejora el rendimiento
+        if conn:
+            release_connection(conn)
 
 from psycopg2.extras import RealDictCursor
 
 def get_pending_queue(limit: int = 50, risk_level: str = None):
     """Obtiene de Supabase las transacciones que están pendientes de revisión."""
+    # Inicializamos conn a None para que el bloque finally pueda comprobar
+    # si la conexión llegó a abrirse antes de intentar liberarla
+    conn = None
     try:
         conn = get_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -127,15 +149,22 @@ def get_pending_queue(limit: int = 50, risk_level: str = None):
         total_pending = cur.fetchone()['count']
         
         cur.close()
-        conn.close()
         
         return total_pending, [dict(row) for row in rows]
     except Exception as e:
         print(f"❌ Error en DB leyendo la cola: {e}")
         return 0, []
+    finally:
+        # Devolvemos la conexión al pool en lugar de destruirla
+        # Esto evita crear una conexión nueva en cada llamada y mejora el rendimiento
+        if conn:
+            release_connection(conn)
 
 def resolve_case(transaction_id: str, decision: str, analyst_id: str):
     """Actualiza una transacción en Supabase marcándola como revisada por un humano."""
+    # Inicializamos conn a None para que el bloque finally pueda comprobar
+    # si la conexión llegó a abrirse antes de intentar liberarla
+    conn = None
     try:
         conn = get_connection()
         cur = conn.cursor()
@@ -148,6 +177,10 @@ def resolve_case(transaction_id: str, decision: str, analyst_id: str):
         
         conn.commit()
         cur.close()
-        conn.close()
     except Exception as e:
         print(f"❌ Error actualizando estado en DB: {e}")
+    finally:
+        # Devolvemos la conexión al pool en lugar de destruirla
+        # Esto evita crear una conexión nueva en cada llamada y mejora el rendimiento
+        if conn:
+            release_connection(conn)
